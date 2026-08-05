@@ -63,8 +63,6 @@ class ShepherdWorkerExtension implements Extension {
     // #6 replaces this with the fetch-into-cache tick.
     return undefined;
   }
-
-  onUnload = (): void => {};
 }
 
 const workerExtension = new ShepherdWorkerExtension();

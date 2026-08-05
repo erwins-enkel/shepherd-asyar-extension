@@ -23,7 +23,7 @@
       "name": "apiToken",
       "type": "password",
       "title": "API token",
-      "description": "Sent as `Authorization: Bearer <token>`. Stored device-locally and excluded from cloud sync."
+      "description": "Sent as a bearer token on every request. Stored device-locally and excluded from cloud sync, so it must be entered again on each machine."
     }
   ],
   "commands": [
