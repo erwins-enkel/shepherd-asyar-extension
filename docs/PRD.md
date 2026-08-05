@@ -48,8 +48,11 @@ Consequences today:
 - **NG1** Steering sessions (reply, interrupt, plan release, ready-to-merge) — v1 is read-only.
 - **NG2** Creating sessions or filing tasks. Shepherd's Chrome extension (`extension/` in the
   Shepherd repo) already owns capture-and-file.
-- **NG3** Background polling, launcher badges, or OS notifications. Shepherd's web push already
-  covers "tell me when something changes"; duplicating it on the desktop creates double pings.
+- **NG3** Launcher badges and OS notifications. Shepherd's web push already covers "tell me when
+  something changes"; duplicating it on the desktop creates double pings, so `notifications:send`
+  is never requested. A *silent* background poll is unavoidable and in scope — the launcher caps a
+  whole extension-search round at 200 ms, so root search can only answer from a pre-filled cache
+  (see D2) — but it stays silent: it fills a cache and raises nothing.
 - **NG4** Rendering the terminal, diff, or transcript inside Asyar. The HUD is the place for that.
 - **NG5** Multiple Shepherd cores. Exactly one configured instance.
 - **NG6** The Up Next / backlog feed (`GET /api/up-next`) — startable issues, not sessions.
@@ -57,9 +60,11 @@ Consequences today:
 ## 5. Target audience
 
 **Primary — the Shepherd operator (single user, initially the author).** Runs 3–15 parallel agent
-sessions across several repos on a self-hosted Shepherd core, reachable at `localhost:7330` or over
-Tailscale. Lives in a keyboard-driven desktop with Asyar bound to a global hotkey. Technical enough
-to paste a bearer token into a preferences field.
+sessions across several repos on a self-hosted Shepherd core, reachable over Tailscale at a
+`*.ts.net` FQDN. It must be Tailscale-reachable: Asyar's SSRF gate rejects `localhost`, loopback
+and RFC1918 addresses before DNS resolution, so a core that is only reachable at `localhost:7330`
+cannot be used from the extension at all (see §7.5). Lives in a keyboard-driven desktop with Asyar
+bound to a global hotkey. Technical enough to paste a bearer token into a preferences field.
 
 **Secondary — other self-hosting Shepherd users** who also run Asyar. They shape the requirement
 that nothing is hardcoded to one host, port, or token, but they are not a v1 distribution target.
@@ -145,7 +150,9 @@ collections rather than `409 first_run_pending`. There is no first-run error sta
 
 **Acceptance criteria**
 
-- `baseUrl` (required, default `http://localhost:7330`) and `token` (optional, password-type).
+- `baseUrl` (required, default `https://host.example.ts.net:1234`) and `token` (optional,
+  password-type). The default is a Tailnet FQDN, not `http://localhost:7330` — see §7.5; a
+  loopback default could never resolve.
 - The token, when set, is sent as `Authorization: Bearer <token>` on every request.
 - Changing preferences takes effect on the next panel open — no launcher restart.
 
@@ -198,12 +205,28 @@ its own English copy map keyed by `HoldCode`, interpolating `HoldParams` (`pr`, 
 
 - One extension, `type: "extension"`, with `background.main` (the worker) and `searchable: true`.
 - One `mode: "view"` command — *Shepherd Sessions* — rendering the grouped list.
-- Permissions: `network` (reach the core) and `shell:open-url` (open the HUD). Whether reading the
-  manifest-declared `preferences` additionally requires `storage` is settled in the SDK spike (A1).
-  `notifications:send` is explicitly **not** requested, per NG3 — and its absence is what makes the
-  read-only boundary structural rather than a matter of discipline.
+- Permissions: `network` (reach the core), plus one of the two URL-open routes below, plus
+  `preferences:read`. The cache adds `storage:read` / `storage:write`. **`storage` on its own is
+  not a valid permission string** and fails `asyar validate`; the valid strings are `storage:read`
+  and `storage:write`. `notifications:send` is explicitly **not** requested, per NG3 — and its
+  absence is what makes the read-only boundary structural rather than a matter of discipline.
+- **Opening a URL (A1 corrected).** There is no typed opener service — no `IOpenerService`, no
+  proxy in either bag, so `ctx.getService('opener')` throws. Two routes actually work:
+  `messageBroker.invoke('opener:open', { url })` under `shell:open-url` (real, but undocumented),
+  or `getService<IBrowserService>('browser').openUrl(url)` under `browser:tabs.write` (documented
+  and typed, but it prefers a paired browser companion over the OS default). Picking one is an
+  explicit deliverable of the panel work; both permissions are declared until then.
+- **Reading preferences (A1 clause 2, amended).** `context.preferences.values.<key>` is a
+  synchronous, permission-free read off a frozen boot snapshot — the manifest declaration *is* the
+  authorization. But the worker's snapshot can arrive empty, and the shipped workaround
+  (`await ctx.preferences.refresh()`) is IPC and requires `preferences:read`.
+- **The core must not be at `localhost`.** Asyar's SSRF gate rejects `localhost`, loopback,
+  RFC1918, link-local and non-http(s) schemes before resolving DNS. A `*.ts.net` FQDN or a
+  `100.64/10` Tailscale address passes; `http://127.0.0.1:7330` cannot.
 - Preferences: `baseUrl`, `token`.
 - Distribution: local install via `asyar dev` / `asyar build`. Store publication is out of scope.
+
+Sources and evidence for all of the above: `docs/asyar-sdk-notes.md`.
 
 ## 8. Scope
 
@@ -241,7 +264,7 @@ The v1 is done when all of the following hold against a live Shepherd core:
 | S5 | Every failure mode of US-5 renders its distinct message | Manual: core stopped, wrong token, empty base URL |
 | S6 | Ordering and grouping match §7.3 exactly for a fixture set covering every hold code | Automated unit tests |
 | S7 | An unknown hold code lands in **Needs you** with generic copy rather than disappearing | Automated unit test with a synthetic code |
-| S8 | Zero requests to Shepherd while the panel is closed | Manual: server log shows no traffic when idle |
+| S8 | While the panel is closed, Shepherd sees exactly one `/api/sessions` + `/api/holds` pair per scheduled tick (60 s) and nothing else | Manual: measure against Shepherd's request log over several minutes idle; record the observed frequency in `docs/asyar-sdk-notes.md` |
 | S9 | No file in the Shepherd repository is modified or added by this work | `git diff` in the Shepherd checkout is empty; note it carries pre-existing untracked logs (`as2.err`, `as2.out`) that are not ours |
 
 ## 10. Decisions and assumptions
@@ -249,13 +272,13 @@ The v1 is done when all of the following hold against a live Shepherd core:
 | # | Decision / assumption | Rationale |
 |---|----------------------|-----------|
 | D1 | Read-only v1 | Smallest surface that delivers the core value; no risk of mis-steering an agent from a fuzzy-matched list |
-| D2 | On-demand fetch, no background schedule | Shepherd's web push already owns notification; a second channel means double pings |
+| D2 | Panel fetches on demand; a silent scheduled poll fills the root-search cache | The 200 ms extension-search cap makes a live fetch inside `search()` impossible, so the poll is a precondition for US-4, not an optimization. It notifies nothing — Shepherd's web push stays the only notification channel |
 | D3 | Panel **and** root search | The root-search hit is the fastest path for a known session; the panel is the triage view |
 | D4 | Single instance | Matches the actual deployment; multi-instance adds config UI, result merging, and per-instance error states for no present benefit |
 | D5 | Reuse `/api/holds` rather than re-deriving attention | The classification is genuinely intricate (`classifyAttention`, ~25 codes, tiered precedence); duplicating it guarantees drift |
 | D6 | English throughout | Consistent with Shepherd's own docs and with eventual Asyar-store publication |
-| D7 | Preferences hold the base URL; no discovery | Assumed: the operator knows their core's URL. Tailscale FQDN and `localhost:7330` are both just strings |
-| A1 | Asyar's SDK exposes URL opening under the `shell:open-url` permission, and reading manifest-declared preferences needs no further permission | Both come from the manifest reference, not from a per-service page (`docs/reference/permissions.md` and the per-service SDK docs were not read — see §13). The exact service calls and the final permission set are pinned by the SDK spike, which is the first implementation step |
+| D7 | Preferences hold the base URL; no discovery | Assumed: the operator knows their core's URL. The choice is not free, though: Asyar's SSRF gate structurally rejects `localhost:7330`, so the URL must be a Tailnet FQDN or another non-private address |
+| A1 | **Corrected.** Asyar exposes *no typed opener service* — `ctx.getService('opener')` throws. Two real routes exist, under different permissions; reading manifest-declared preferences needs no permission, but recovering from an empty worker snapshot does | Clause 1 was refuted by the SDK spike, clause 2 amended. See §7.5 for both routes and the `preferences:read` amendment. Which route wins is an explicit deliverable of the panel work |
 | A2 | The Shepherd core is reachable from the machine running Asyar | Both run on the operator's desktop, or the core is Tailscale-served |
 | A3 | `Session.updatedAt` is a usable freshness signal for ordering the Active list | It is what the HUD's own elapsed-time display is built on |
 
@@ -286,6 +309,11 @@ scheduling bounds, the permission names, the SDK service list (`SearchService`, 
 `StorageService`, `FeedbackService`), and the action/handler model quoted in §7.5. Not yet read, and
 deliberately deferred to the implementation spike (A1, R1): `docs/tutorials/`,
 `docs/reference/sdk/` per-service pages, and `docs/reference/permissions.md`.
+
+That spike has since run against the launcher and SDK source, and its findings — including the
+corrections to A1, D2, D7, NG3, S8 and §7.5 above — are recorded with their evidence in
+`docs/asyar-sdk-notes.md`. Where the Asyar docs and the source disagree, the source wins; the
+tutorials in particular are stale and do not build.
 
 **Shepherd** — read from the working checkout at `/home/moe/projects/shepherd`: `src/server.ts`,
 `src/store.ts`, `src/types.ts`, `src/rundown-core.ts`, `src/hold.ts`, `src/hold-service.ts`,
