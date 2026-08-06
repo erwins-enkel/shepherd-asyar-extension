@@ -1,0 +1,51 @@
+{
+  "id": "blog.osthoff.shepherd",
+  "name": "Shepherd Sessions",
+  "version": "0.1.0",
+  "type": "extension",
+  "description": "Open Shepherd sessions and see which ones are waiting on you.",
+  "author": "Kai Osthoff",
+  "icon": "🐑",
+  "searchable": true,
+  "asyarSdk": "^4.6.0",
+  "permissions": ["network", "shell:open-url", "browser:tabs.write", "preferences:read"],
+  "preferences": [
+    {
+      "name": "apiBaseUrl",
+      "type": "textfield",
+      "title": "Shepherd API base URL",
+      "description": "Must not be localhost: Asyar blocks loopback, RFC1918 and link-local addresses before DNS resolution. Use the Tailnet FQDN of your Shepherd core.",
+      "required": true,
+      "placeholder": "https://host.example.ts.net:1234",
+      "default": "https://host.example.ts.net:1234"
+    },
+    {
+      "name": "apiToken",
+      "type": "password",
+      "title": "API token",
+      "description": "Sent as a bearer token on every request. Stored device-locally and excluded from cloud sync, so it must be entered again on each machine."
+    }
+  ],
+  "commands": [
+    {
+      "id": "sessions",
+      "name": "Shepherd Sessions",
+      "description": "Browse open Shepherd sessions",
+      "icon": "🐑",
+      "mode": "view",
+      "component": "SessionsView"
+    },
+    {
+      "id": "poll",
+      "name": "Refresh sessions",
+      "description": "Background refresh of the session cache",
+      "mode": "background",
+      "schedule": {
+        "intervalSeconds": 60
+      }
+    }
+  ],
+  "background": {
+    "main": "dist/worker.js"
+  }
+}
