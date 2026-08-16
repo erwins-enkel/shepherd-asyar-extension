@@ -15,6 +15,12 @@
   let panel = $state<PanelModel>({ needsYou: [], active: [], done: [] });
   let doneOpen = $state(false);
   let filter = $state('');
+  /** Set when `load()` itself throws or rejects before an `outcome` can be
+   *  produced — e.g. `preferences.refresh()` IPC failure or a synchronous
+   *  throw from `getService()`. This is not a client-layer failure (see
+   *  `FetchOutcome` in client.ts), so it gets its own state rather than a
+   *  new union variant on a type that module is shared and owns. */
+  let fatalError = $state<string | null>(null);
 
   /** Read a preference, recovering from an empty boot snapshot.
    *
@@ -28,7 +34,7 @@
   }> {
     let values = context.preferences.values as Record<string, unknown>;
     if (typeof values?.apiBaseUrl !== 'string' || values.apiBaseUrl.trim() === '') {
-      values = (await context.preferences.refresh()) as unknown as Record<string, unknown>;
+      values = await context.preferences.refresh();
     }
     return {
       baseUrl: typeof values?.apiBaseUrl === 'string' ? values.apiBaseUrl : '',
@@ -38,21 +44,25 @@
   }
 
   async function load(): Promise<void> {
-    const prefs = await readPreferences();
-    const net = context.getService<INetworkService>('network');
-    const result = await fetchPanelData(net, prefs.baseUrl, prefs.token);
-    outcome = result;
-    if (result.kind === 'ok') {
-      const lang = resolveLanguage(prefs.language, globalThis.navigator?.language);
-      panel = buildPanel(result.sessions, result.holds, lang);
-    } else {
-      panel = { needsYou: [], active: [], done: [] };
+    try {
+      const prefs = await readPreferences();
+      const net = context.getService<INetworkService>('network');
+      const result = await fetchPanelData(net, prefs.baseUrl, prefs.token);
+      outcome = result;
+      if (result.kind === 'ok') {
+        const lang = resolveLanguage(prefs.language, globalThis.navigator?.language);
+        panel = buildPanel(result.sessions, result.holds, lang);
+      } else {
+        panel = { needsYou: [], active: [], done: [] };
+      }
+    } catch (error) {
+      fatalError = error instanceof Error ? error.message : String(error);
     }
   }
 
   function matches(row: PanelRow, needle: string): boolean {
-    if (needle === '') return true;
-    const q = needle.toLowerCase();
+    const q = needle.trim().toLowerCase();
+    if (q === '') return true;
     return (
       row.desig.toLowerCase().includes(q) ||
       row.name.toLowerCase().includes(q) ||
@@ -79,7 +89,9 @@
 </script>
 
 <main>
-  {#if outcome === null}
+  {#if fatalError !== null}
+    <p class="state error">Shepherd panel failed to load: {fatalError}</p>
+  {:else if outcome === null}
     <p class="state">Loading…</p>
   {:else if outcome.kind === 'unconfigured'}
     <p class="state">
@@ -100,7 +112,13 @@
       Unexpected response from {outcome.baseUrl} — is that a Shepherd core?
     </p>
   {:else}
-    <input class="filter" type="text" placeholder="Filter…" bind:value={filter} />
+    <input
+      class="filter"
+      type="text"
+      placeholder="Filter…"
+      aria-label="Filter sessions"
+      bind:value={filter}
+    />
 
     <section>
       <h2>Needs you <span class="count">{needsYou.length}</span></h2>
@@ -122,21 +140,29 @@
 
     <section>
       <h2>Active <span class="count">{active.length}</span></h2>
-      <ul>
-        {#each active as row (row.id)}
-          <li class="row">
-            <span class="desig">{row.desig}</span>
-            <span class="name">{row.name}</span>
-            <span class="repo">{row.repo}</span>
-            <span class="reason">{row.reason ?? `${row.status} · ${elapsed(row.updatedAt)}`}</span>
-          </li>
-        {/each}
-      </ul>
+      {#if active.length === 0}
+        <p class="state">Nothing active.</p>
+      {:else}
+        <ul>
+          {#each active as row (row.id)}
+            <li class="row">
+              <span class="desig">{row.desig}</span>
+              <span class="name">{row.name}</span>
+              <span class="repo">{row.repo}</span>
+              <span class="reason">{row.reason ?? `${row.status} · ${elapsed(row.updatedAt)}`}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
     </section>
 
     <section>
       <h2>
-        <button class="disclosure" onclick={() => (doneOpen = !doneOpen)}>
+        <button
+          class="disclosure"
+          aria-expanded={doneOpen}
+          onclick={() => (doneOpen = !doneOpen)}
+        >
           {doneOpen ? '▾' : '▸'} Done <span class="count">{done.length}</span>
         </button>
       </h2>

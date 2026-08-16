@@ -16,8 +16,7 @@
       "title": "Shepherd API base URL",
       "description": "Must not be localhost: Asyar blocks loopback, RFC1918 and link-local addresses before DNS resolution. Use the Tailnet FQDN of your Shepherd core.",
       "required": true,
-      "placeholder": "https://host.example.ts.net:1234",
-      "default": "https://host.example.ts.net:1234"
+      "placeholder": "https://host.example.ts.net:1234"
     },
     {
       "name": "apiToken",
