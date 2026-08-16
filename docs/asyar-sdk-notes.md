@@ -13,7 +13,7 @@ Every entry is tagged:
 |---|---|
 | **CONFIRMED** | Executed in this repository. Reproducible with the commands given. |
 | **SOURCE-READ** | Read out of launcher or SDK source at the pinned commit. Not executed. |
-| **UNVERIFIED** | Needs a running launcher. **Asyar is not installed on this machine** — no binary, no AppImage, no package — so nothing about actually loading or running the extension has been observed. |
+| **UNVERIFIED** | Needs a running launcher session with this extension loaded. Asyar itself **is** installed on this machine — `/Applications/Asyar.app`, with app data at `~/Library/Application Support/org.asyar.app/` (**CONFIRMED**: `ls -d /Applications/Asyar.app`, `ls ~/Library/Application\ Support/org.asyar.app/`) — but this extension has never been attached to a running session, so nothing about actually loading or running it has been observed. |
 
 > The Asyar tutorials are stale and do not build. Trust order for anything not settled here:
 > **launcher/SDK source → shipped third-party extensions → docs.**
@@ -167,7 +167,10 @@ been observed running.
   RFC1918, link-local, unspecified, broadcast and any non-http(s) scheme, **before** DNS
   resolution. Hostnames are not resolved first, and `100.64/10` (Tailscale CGNAT) is not covered
   by Rust's `is_private()`. So a `*.ts.net` FQDN or a `100.x` address passes and
-  `http://127.0.0.1:7330` cannot. This is why `apiBaseUrl` defaults to a Tailnet FQDN.
+  `http://127.0.0.1:7330` cannot. This is why the `apiBaseUrl` preference's `placeholder` models a
+  Tailnet FQDN (`https://host.example.ts.net:1234`) and its description warns against localhost.
+  **CONFIRMED**, `manifest.json`: the preference is `required: true` with no `default` — the
+  operator must supply their own Shepherd core URL; there is nothing to fall back to.
 - **`net.fetch` returns a string body.** There is no `.json()`. Non-2xx **resolves** with
   `ok: false` — check it. Transport failures reject, but the Rust error text is replaced with a
   generic `'fetch_url failed'`, so a rejection is not a diagnosis. Always pass an explicit
@@ -232,17 +235,23 @@ npx asyar validate   # exit 0, "All checks passed"
   `../../asyar-sdk/src`. That is monorepo-only plumbing (they declare `"asyar-sdk": "workspace:*"`);
   consuming from npm, it computes an empty alias map, so it is deliberately absent here.
 
-## Still unverified — needs the operator to install Asyar
+## Still unverified — needs a running launcher session with this extension attached
 
 **UNVERIFIED.** Building and validating work without the launcher; importing and running do not.
-Three operator steps unblock #5, #7 and #8:
+Two operator steps unblock #5, #7 and #8:
 
-1. Run upstream `install.sh` — it `curl`s the AppImage to `~/.local/bin/asyar`. There is no
-   package-manager route.
-2. Launch once so `~/.local/share/org.asyar.app/` is created. (The tutorials' path,
-   `~/.config/Asyar/extensions/`, is wrong.)
-
-Then: `asyar attach <dir>` or `asyar link`.
+1. Install and launch Asyar once so its app-data directory exists.
+   - **Linux** (SOURCE-READ, upstream `install.sh`): `curl`s the AppImage to
+     `~/.local/bin/asyar`; data lands in `~/.local/share/org.asyar.app/`. There is no
+     package-manager route. (The tutorials' path, `~/.config/Asyar/extensions/`, is wrong.)
+   - **macOS** (**CONFIRMED** on this machine): the app is `/Applications/Asyar.app`; its
+     app-data directory is `~/Library/Application Support/org.asyar.app/`, confirmed present
+     with `asyar_data.db`, `extensions/`, `dev_extensions.json`, `settings.dat`. This step is
+     already done here — the installation method (DMG vs. otherwise) was not itself observed.
+2. Attach this extension to a running session: `asyar attach <dir>` or `asyar link`. **Not done
+   yet** — `dev_extensions.json` on this machine currently registers only
+   `org.asyar.sdk-playground`, a different extension, not `blog.osthoff.shepherd`
+   (**CONFIRMED**, `cat ~/Library/Application\ Support/org.asyar.app/dev_extensions.json`).
 
 Open questions that only a running launcher can answer:
 
