@@ -51,10 +51,24 @@ those land, mint a read-scoped token and paste it in; nothing here has to change
 ```sh
 npm install
 npm run build
-npx asyar link
+npx asyar link --copy
 ```
 
-Then enable the extension in Asyar and open its preferences:
+**`--copy` is required, not optional, on a release build of Asyar.** `asyar link` defaults to
+symlinking your project directory into Asyar's extensions folder, and the launcher's URL scheme
+handler canonicalizes every request before serving it and rejects any path that resolves outside
+its allowed directories (`uri_schemes.rs`, `is_path_allowed`). The rule that would permit a symlink
+target elsewhere on disk is compiled in under `#[cfg(debug_assertions)]` — debug builds only. So on
+the shipped app a symlinked extension gets `403` for `view.html` and `worker.html`, which surfaces
+as an empty panel and, in `~/Library/Logs/org.asyar.app/asyar.log`, a
+`[workerRegistry] unmount … reason=timeout`. No error is shown in the UI.
+
+The trade-off: `--copy` places real files in the extensions directory, so **re-run
+`npm run build && npx asyar link --copy` after every change**. A symlink would have updated itself;
+a copy does not.
+
+Then restart Asyar — it scans the extensions directory at startup, so an extension linked while it
+was running stays invisible until the next launch. Enable the extension and open its preferences:
 
 | Preference | Value |
 |---|---|

@@ -4,7 +4,7 @@ What this project actually knows about the Asyar extension SDK, and how it knows
 during issue #2 (scaffold + SDK verification); the facts here are what issues #3–#8 build on.
 
 **Pins:** `asyar-sdk` **4.6.0** (npm) · launcher source read at `github.com/Xoshbin/asyar`
-@ `6bce726b854fb7cd3c638559b14fa8fe1bfcb788` · Node 24.18.0 · npm 11.16.0 · vite 6.4.3 ·
+@ `a7277286` (launcher 0.1.1-41, matching the installed app) · Node 24.18.0 · npm 11.16.0 · vite 6.4.3 ·
 svelte 5 · TypeScript 5.
 
 Every entry is tagged:
@@ -253,10 +253,36 @@ Two operator steps unblock #5, #7 and #8:
      app-data directory is `~/Library/Application Support/org.asyar.app/`, confirmed present
      with `asyar_data.db`, `extensions/`, `dev_extensions.json`, `settings.dat`. This step is
      already done here — the installation method (DMG vs. otherwise) was not itself observed.
-2. Attach this extension to a running session: `asyar attach <dir>` or `asyar link`. **Not done
-   yet** — `dev_extensions.json` on this machine currently registers only
-   `org.asyar.sdk-playground`, a different extension, not `dev.erwins-enkel.shepherd`
-   (**CONFIRMED**, `cat ~/Library/Application\ Support/org.asyar.app/dev_extensions.json`).
+2. Attach this extension: **`asyar link --copy`**, not the bare `asyar link`. Done on this
+   machine; the extension now sits as a real directory in the launcher's extensions folder.
+   Restart Asyar afterwards — it scans that folder at startup, so anything linked while it is
+   running stays invisible until the next launch (**CONFIRMED**: the launcher had started at
+   21:13:27 and the link was created at 21:22:47; the extension did not appear until a restart).
+
+### `asyar link`'s default symlink mode cannot work on a release build
+
+**CONFIRMED** by observation, explained by **SOURCE-READ** of `asyar-launcher/src-tauri/src/uri_schemes.rs`.
+
+`asyar link` defaults to symlinking the project directory into the extensions folder
+(`symlinkOrCopy` in `asyar-sdk/dist/cli/commands/link.js`); `--copy` copies `manifest.json` plus
+`dist/` instead. The scheme handler resolves a request in this order — `extensions/<id>/dist/<file>`
+first, then `extensions/<id>/<file>` — and then **canonicalizes** the hit and passes it through
+`is_path_allowed()`. That function permits the app-data extensions directory, the Windows local-data
+one, and any base path registered in `dev_extensions.json`. The rule that would permit an arbitrary
+symlink target — commented in the source as "developer symlink targets like
+`~/develop/extensions/my-ext/`" — sits behind `#[cfg(debug_assertions)]`, as does a catch-all
+allow-everything; a release build falls through to `false`.
+
+So on the shipped app, a symlinked extension returns **403** for `view.html` and `worker.html`.
+Observed symptoms, both silent in the UI: the view command opens an empty window, and
+`~/Library/Logs/org.asyar.app/asyar.log` records
+`[workerRegistry] mount <id> token=N` followed ~3 s later by
+`[workerRegistry] unmount <id> reason=timeout`. The timeout is emitted by the Rust ticker
+(`extensions/extension_runtime/ticker.rs`) because the worker iframe never sent its
+`asyar:extension:loaded` readiness message — it never loaded at all.
+
+The launcher's log is the diagnostic of record here; nothing about this failure is visible in the
+launcher window.
 
 Open questions that only a running launcher can answer:
 
