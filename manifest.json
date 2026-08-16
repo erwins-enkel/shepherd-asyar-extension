@@ -24,6 +24,18 @@
       "type": "password",
       "title": "API token",
       "description": "Sent as a bearer token on every request. Stored device-locally and excluded from cloud sync, so it must be entered again on each machine."
+    },
+    {
+      "name": "holdLanguage",
+      "type": "dropdown",
+      "title": "Reason language",
+      "description": "Language for the hold reasons. Auto follows your system language, matching the Shepherd HUD.",
+      "default": "auto",
+      "data": [
+        { "title": "Auto", "value": "auto" },
+        { "title": "English", "value": "en" },
+        { "title": "Deutsch", "value": "de" }
+      ]
     }
   ],
   "commands": [
