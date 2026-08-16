@@ -116,6 +116,15 @@ const UNKNOWN: Record<HoldLanguage, string> = {
   de: 'Braucht dich.',
 };
 
+// Lookup Maps built from EN/DE above, mirroring the pattern in tiers.ts.
+// A Map has no prototype chain to fall through to, so a code that collides
+// with an Object.prototype member (e.g. `__proto__`, `hasOwnProperty`,
+// `toString`) still misses cleanly instead of resolving to an inherited
+// value. EN and DE themselves stay untouched object literals — only this
+// derived lookup structure changes.
+const EN_MAP = new Map(Object.entries(EN)) as Map<string, CopyMap[HoldCode]>;
+const DE_MAP = new Map(Object.entries(DE)) as Map<string, CopyMap[HoldCode]>;
+
 /**
  * Render a hold reason. `code` is `string`, not `HoldCode`, because the wire
  * can carry a code newer than this file.
@@ -125,8 +134,8 @@ export function renderHold(
   params: HoldParams | undefined,
   lang: HoldLanguage,
 ): string {
-  const map = lang === 'de' ? DE : EN;
-  const fn = (map as Record<string, CopyMap[HoldCode] | undefined>)[code];
+  const map = lang === 'de' ? DE_MAP : EN_MAP;
+  const fn = map.get(code);
   if (!fn) return UNKNOWN[lang];
   return fn(params ?? {}, lang);
 }
@@ -143,7 +152,8 @@ export function resolveLanguage(
   pref: string | undefined,
   navigatorLanguage: string | undefined,
 ): HoldLanguage {
-  if (pref === 'de') return 'de';
-  if (pref === 'en') return 'en';
+  const normalizedPref = pref?.toLowerCase();
+  if (normalizedPref === 'de') return 'de';
+  if (normalizedPref === 'en') return 'en';
   return navigatorLanguage?.toLowerCase().startsWith('de') ? 'de' : 'en';
 }
