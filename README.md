@@ -102,13 +102,13 @@ read here is the same sentence as in the HUD. The tier table in `tiers.ts` is *n
 Shepherd's `SIGNAL_TIER` is keyed by a different vocabulary — which is why an unrecognised hold code
 degrades to tier 1 with generic copy rather than disappearing.
 
-**Opening a session — two routes, both still shipped.** Asyar exposes no typed opener service.
-`src/opener.ts` tries an undocumented message-broker call (`opener:open`, under the
-`shell:open-url` permission) and falls back to the SDK's typed browser service (`browser.openUrl`,
-under `browser:tabs.write`) if that doesn't answer within 3 seconds. Both permissions are still
-declared in `manifest.json` because only a live launcher run can show which route actually opens
-the browser; once that's known, the losing route and its permission should be deleted so the
-manifest asks for no more access than the extension uses.
+**Opening a session.** Asyar exposes no typed opener service. `src/opener.ts` calls the
+undocumented message-broker route, `messageBroker.invoke('opener:open', { url })`, under the
+`shell:open-url` permission. This was verified on a live launcher — pressing Enter on a session
+row opened its terminal in the browser — so the SDK's typed browser service
+(`browser.openUrl`, under `browser:tabs.write`) that this module tried as a fallback before that
+run has been removed, along with the permission, keeping the manifest's declared access no wider
+than what the extension uses.
 
 ## Not in this version
 

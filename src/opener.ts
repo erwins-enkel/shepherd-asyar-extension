@@ -2,39 +2,35 @@
 // Opening a URL in the operator's browser.
 //
 // Asyar exposes NO typed opener service — ctx.getService('opener') throws.
-// Two routes exist under different permissions, and the SDK notes could not
-// settle which one actually works without a running launcher:
+// `messageBroker.invoke('opener:open', { url })`, under the `shell:open-url`
+// permission, is the one route this extension uses. Verified on a live
+// launcher: pressing Enter on a session row opened its terminal in the
+// browser, and the launcher log recorded
+//   Received message from iframe (dev.erwins-enkel.shepherd): asyar:api:opener:open
+//   [Main] Received IPC message from dev.erwins-enkel.shepherd: asyar:api:opener:open
+// with no `browser:*` call following. An earlier version of this module also
+// tried `getService<IBrowserService>('browser').openUrl(url)` under
+// `browser:tabs.write` as a fallback; that route was removed once the above
+// confirmed it was never needed.
 //
-//   A  messageBroker.invoke('opener:open', { url })   — shell:open-url
-//      Undocumented but real. NB the form in Asyar's troubleshooting.md, with
-//      `url` at the top level of the postMessage, is a silent no-op: the
-//      router reads `data.payload`.
-//   B  getService<IBrowserService>('browser').openUrl(url) — browser:tabs.write
-//      Documented and typed, but may prefer a paired browser companion over
-//      the OS default.
-//
-// So: try A, fall back to B, and return which one won. Once the first real run
-// answers it, delete the loser AND its permission from manifest.json — the
-// narrower permission set is the point of finding out.
+// NB the form documented in Asyar's own `troubleshooting.md`, with `url` at
+// the top level of the postMessage rather than under `payload`, is a silent
+// no-op: the router reads `data.payload`.
 //
 // Callable from both roles. The parameter is typed as `ExtensionContextCore`
 // (the base both `asyar-sdk/view`'s and `asyar-sdk/worker`'s `ExtensionContext`
 // extend), not the full view-only `ExtensionContext`, so the worker's HUD
-// action handler can call this too. `getService` is all this module uses, and
-// it lives on the base class; `asyar-sdk/worker`'s proxy bag does include a
-// `browser` entry (confirmed by reading `buildWorkerProxyBag()` in
-// `asyar-sdk/dist/worker.js`), so route B is genuinely reachable from the
-// worker as well, not just route A.
+// action handler can call this too.
 // ─────────────────────────────────────────────────────────────────────────
-import type { ExtensionContextCore, IBrowserService } from 'asyar-sdk/contracts';
+import type { ExtensionContextCore } from 'asyar-sdk/contracts';
 import { messageBroker } from 'asyar-sdk/contracts';
 
-export type OpenRoute = 'broker' | 'browser' | 'failed';
+export type OpenRoute = 'broker' | 'failed';
 
 /** The SDK's ambient invoke() default (10s, see MessageBroker.js) is tuned for
  *  IPC that may genuinely take a while. Opening a URL is a local operation, so
- *  if route A hasn't answered in 3s it isn't "slow" — the host isn't routing
- *  `opener:open` at all, and we want route B to take over promptly instead of
+ *  if this hasn't answered in 3s it isn't "slow" — the host isn't routing
+ *  `opener:open` at all, and we want the failure reported promptly instead of
  *  the panel looking frozen. */
 const OPEN_INVOKE_TIMEOUT_MS = 3_000;
 
@@ -42,14 +38,6 @@ export async function openExternal(context: ExtensionContextCore, url: string): 
   try {
     await messageBroker.invoke('opener:open', { url }, undefined, OPEN_INVOKE_TIMEOUT_MS);
     return 'broker';
-  } catch {
-    // fall through to route B
-  }
-
-  try {
-    const browser = context.getService<IBrowserService>('browser');
-    await browser.openUrl(url);
-    return 'browser';
   } catch {
     return 'failed';
   }

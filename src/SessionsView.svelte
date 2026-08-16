@@ -178,9 +178,6 @@
       openError = "Couldn't open the browser.";
       return;
     }
-    // Route taken is worth knowing exactly once: it decides which permission
-    // survives in the manifest.
-    console.log(`[shepherd] opened via ${route}`);
     context.hideLauncher();
   }
 
@@ -200,7 +197,6 @@
       openError = "Couldn't open the browser.";
       return;
     }
-    console.log(`[shepherd] opened HUD via ${route}`);
     context.hideLauncher();
   }
 

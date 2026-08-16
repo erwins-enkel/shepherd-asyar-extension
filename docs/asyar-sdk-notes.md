@@ -13,7 +13,7 @@ Every entry is tagged:
 |---|---|
 | **CONFIRMED** | Executed in this repository. Reproducible with the commands given. |
 | **SOURCE-READ** | Read out of launcher or SDK source at the pinned commit. Not executed. |
-| **UNVERIFIED** | Needs a running launcher session exercising the behaviour in question. Asyar **is** installed on this machine — `/Applications/Asyar.app` (release build `0.1.1-41`), app data at `~/Library/Application Support/org.asyar.app/` — and this extension **has** now been attached and loaded: it appears in the launcher and its worker iframe is mounted. What remains unverified is everything downstream of that: the panel rendering against a live core, which URL-opening route fires, action dispatch, and the clipboard write. |
+| **UNVERIFIED** | Needs a running launcher session exercising the behaviour in question. Asyar **is** installed on this machine — `/Applications/Asyar.app` (release build `0.1.1-41`), app data at `~/Library/Application Support/org.asyar.app/` — and this extension **has** now been attached and loaded: it appears in the launcher and its worker iframe is mounted. What remains unverified is everything downstream of that: the panel rendering against a live core, action dispatch, and the clipboard write. |
 
 > The Asyar tutorials are stale and do not build. Trust order for anything not settled here:
 > **launcher/SDK source → shipped third-party extensions → docs.**
@@ -150,7 +150,6 @@ CLI-only failure. `id` must equal the on-disk directory name.
 |---|---|
 | `network` | `INetworkService.fetch` |
 | `shell:open-url` | the raw `opener:open` wire command |
-| `browser:tabs.write` | `IBrowserService.openUrl` |
 | `preferences:read` | `preferences.refresh()` / `getAll` |
 | `storage:read`, `storage:write` | the cache (#6 declares these) |
 
@@ -181,11 +180,19 @@ been observed running.
   generic `'fetch_url failed'`, so a rejection is not a diagnosis. Always pass an explicit
   `timeout` (the layers disagree: 30000 / 25000+15000 / 20000).
 - **There is no opener service.** No `IOpenerService`, no `OpenerServiceProxy`, and `opener` is in
-  neither proxy bag — `ctx.getService('opener')` **throws**. Two real routes exist:
-  `messageBroker.invoke('opener:open', { url })` under `shell:open-url` (undocumented), and
-  `getService<IBrowserService>('browser').openUrl(url)` under `browser:tabs.write` (documented and
-  typed). #5 picks one. The form documented in `troubleshooting.md` / `permissions.md`, with `url`
-  at the top level of the postMessage, is a **silent no-op**: the router reads `data.payload`.
+  neither proxy bag — `ctx.getService('opener')` **throws**. `messageBroker.invoke('opener:open',
+  { url })` under `shell:open-url` (undocumented) is the route this extension uses. The form
+  documented in `troubleshooting.md` / `permissions.md`, with `url` at the top level of the
+  postMessage, is a **silent no-op**: the router reads `data.payload`.
+  **CONFIRMED** on a live launcher: pressing Enter on a session row opened its terminal in the
+  browser, and the launcher log recorded
+  ```
+  Received message from iframe (dev.erwins-enkel.shepherd): asyar:api:opener:open
+  [Main] Received IPC message from dev.erwins-enkel.shepherd: asyar:api:opener:open
+  ```
+  with no `browser:*` call following. The `getService<IBrowserService>('browser').openUrl(url)`
+  fallback under `browser:tabs.write` that `src/opener.ts` used to try has been removed, along with
+  the permission.
 - **Root search is capped at 200 ms** for the whole extension-search round, even though the
   per-iframe request timeout is 5000 ms. `search()` must answer from cache; a live HTTP GET inside
   it will never appear. This is why #6 (poll + cache) blocks #7.
@@ -312,11 +319,6 @@ launcher window.
 
 Open questions that only a running launcher can answer:
 
-- Does `messageBroker.invoke('opener:open', {url})` actually open a browser under
-  `shell:open-url`?
-- Does `browser.openUrl(url, undefined)` fall back to the OS default with no companion paired?
-  `browser/service.rs` says yes; a comment in the shipped browser extension says no. If a
-  companion *is* paired, Route B opens there rather than in the OS default.
 - Does the worker actually receive `preferences:set-all`, or is `refresh()` always needed?
 - Does a cache-backed `search()` land inside the 200 ms cap?
 - Is `asyarSdk: "^4.6.0"` accepted by the installed launcher's compat check? (Docs say `^2.7.0` /

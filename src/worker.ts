@@ -59,10 +59,10 @@ async function handleOpenHud(): Promise<void> {
 
   const route = await openExternal(workerContext, baseUrl);
   if (route === 'failed') {
-    log.error(`[${extensionId}] "Open Shepherd HUD" action: no opener route succeeded`);
+    log.error(`[${extensionId}] "Open Shepherd HUD" action: opener:open failed`);
     return;
   }
-  log.info(`[${extensionId}] opened Shepherd HUD via ${route}`);
+  log.info(`[${extensionId}] opened Shepherd HUD`);
 }
 
 // The Extension interface's `initialize(ctx)` expects the contracts-flavored
