@@ -17,12 +17,12 @@
 // the top level of the postMessage rather than under `payload`, is a silent
 // no-op: the router reads `data.payload`.
 //
-// Callable from both roles. The parameter is typed as `ExtensionContextCore`
-// (the base both `asyar-sdk/view`'s and `asyar-sdk/worker`'s `ExtensionContext`
-// extend), not the full view-only `ExtensionContext`, so the worker's HUD
-// action handler can call this too.
+// Callable from both roles: `messageBroker` is exported from the neutral
+// `asyar-sdk/contracts` entry, so the worker's HUD action handler reaches this
+// as readily as the view does. It took an extension context while the browser
+// service was the fallback route — that route is gone, and with it the only
+// reason to pass one.
 // ─────────────────────────────────────────────────────────────────────────
-import type { ExtensionContextCore } from 'asyar-sdk/contracts';
 import { messageBroker } from 'asyar-sdk/contracts';
 
 export type OpenRoute = 'broker' | 'failed';
@@ -34,7 +34,7 @@ export type OpenRoute = 'broker' | 'failed';
  *  the panel looking frozen. */
 const OPEN_INVOKE_TIMEOUT_MS = 3_000;
 
-export async function openExternal(context: ExtensionContextCore, url: string): Promise<OpenRoute> {
+export async function openExternal(url: string): Promise<OpenRoute> {
   try {
     await messageBroker.invoke('opener:open', { url }, undefined, OPEN_INVOKE_TIMEOUT_MS);
     return 'broker';

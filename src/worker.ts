@@ -57,7 +57,7 @@ async function handleOpenHud(): Promise<void> {
     return;
   }
 
-  const route = await openExternal(workerContext, baseUrl);
+  const route = await openExternal(baseUrl);
   if (route === 'failed') {
     log.error(`[${extensionId}] "Open Shepherd HUD" action: opener:open failed`);
     return;

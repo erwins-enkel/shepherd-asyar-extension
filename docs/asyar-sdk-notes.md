@@ -13,7 +13,7 @@ Every entry is tagged:
 |---|---|
 | **CONFIRMED** | Executed in this repository. Reproducible with the commands given. |
 | **SOURCE-READ** | Read out of launcher or SDK source at the pinned commit. Not executed. |
-| **UNVERIFIED** | Needs a running launcher session exercising the behaviour in question. Asyar **is** installed on this machine — `/Applications/Asyar.app` (release build `0.1.1-41`), app data at `~/Library/Application Support/org.asyar.app/` — and this extension **has** now been attached and loaded: it appears in the launcher and its worker iframe is mounted. What remains unverified is everything downstream of that: the panel rendering against a live core, action dispatch, and the clipboard write. |
+| **UNVERIFIED** | Needs a running launcher session exercising the behaviour in question. Asyar **is** installed on this machine — `/Applications/Asyar.app` (release build `0.1.1-41`), app data at `~/Library/Application Support/org.asyar.app/` — and this extension **has** now been run against a live Shepherd core: the panel rendered twelve waiting sessions with their German hold copy, and pressing Enter on a row opened that session's terminal in the browser. What remains unverified is the surface added after that run — the launcher-search-bar filtering, the three in-view ⌘K actions, and the clipboard write. |
 
 > The Asyar tutorials are stale and do not build. Trust order for anything not settled here:
 > **launcher/SDK source → shipped third-party extensions → docs.**

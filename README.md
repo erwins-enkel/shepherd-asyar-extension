@@ -94,7 +94,7 @@ npm run validate  # asyar validate
 ```
 
 The pure layer (`src/shepherd/types.ts`, `tiers.ts`, `copy.ts`, `view-model.ts`) has no SDK or DOM
-dependency and is unit-tested in plain Node — 55 tests across four `*.test.ts` files as of this
+dependency and is unit-tested in plain Node — 58 tests across four `*.test.ts` files as of this
 writing. `src/shepherd/client.ts` is the only module that knows Shepherd is an HTTP service.
 
 The hold copy in `copy.ts` is lifted verbatim from Shepherd's own `src/hold.ts` so that a reason

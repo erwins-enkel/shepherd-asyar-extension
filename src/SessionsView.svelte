@@ -173,7 +173,7 @@
 
   async function open(row: PanelRow): Promise<void> {
     openError = null;
-    const route = await openExternal(context, sessionUrl(baseUrlForLinks, row.id));
+    const route = await openExternal(sessionUrl(baseUrlForLinks, row.id));
     if (route === 'failed') {
       openError = "Couldn't open the browser.";
       return;
@@ -192,7 +192,7 @@
       openError = "Couldn't open the browser — no Shepherd base URL is configured.";
       return;
     }
-    const route = await openExternal(context, base);
+    const route = await openExternal(base);
     if (route === 'failed') {
       openError = "Couldn't open the browser.";
       return;
