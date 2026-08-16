@@ -181,6 +181,20 @@ been observed running.
 - **Root search is capped at 200 ms** for the whole extension-search round, even though the
   per-iframe request timeout is 5000 ms. `search()` must answer from cache; a live HTTP GET inside
   it will never appear. This is why #6 (poll + cache) blocks #7.
+- **Settings → Advanced → "Extension Search" gates Tier 2 `search()` only, not commands.**
+  **SOURCE-READ**, launcher source at the pinned commit:
+  `asyar-launcher/src/services/extension/extensionSearchAggregator.ts` — `searchAll()` collects
+  Tier 1 results (built-ins with a direct `search()` function) unconditionally, and only wraps the
+  Tier 2 branch — sending a search request to a `searchable` extension's iframe — in
+  `if (enableExtensionSearch)`. `asyar-launcher/src/services/search/searchOrchestrator.svelte.ts`
+  calls `commands.mergedSearch(query, externalResults, 10)`, which merges the Rust-side command
+  index with those external results; extension **commands** (like this project's `mode: "view"`
+  "Shepherd Sessions") reach the search bar through that Rust index, not through `searchAll`, so
+  they appear regardless of the toggle. `asyar-launcher/src/services/settings/settingsService.svelte.ts`
+  confirms the default is `false`. This is a genuine prerequisite for the deferred root-search work
+  (the `search()` call in `worker.ts`) — it is **not** a prerequisite for the panel command this
+  slice ships. Previously filed under "Still unverified"; corrected after a source read, not a
+  running launcher, so it stays SOURCE-READ rather than CONFIRMED.
 - **`search()` results lose their `action`.** The SDK rebuilds each result across `postMessage`
   and drops the function even though the type marks it required. Use `actionId` +
   `actionPayload`, and register the handler **in the worker** — the launcher's Enter path falls
@@ -227,8 +241,6 @@ Three operator steps unblock #5, #7 and #8:
    package-manager route.
 2. Launch once so `~/.local/share/org.asyar.app/` is created. (The tutorials' path,
    `~/.config/Asyar/extensions/`, is wrong.)
-3. **Settings → Advanced → "Extension Search"** ships **`false`**. Without it a searchable
-   extension contributes nothing to root search. Hard onboarding requirement, not a nicety.
 
 Then: `asyar attach <dir>` or `asyar link`.
 

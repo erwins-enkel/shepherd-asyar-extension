@@ -5,8 +5,8 @@ An [Asyar](https://asyar.org) launcher extension that answers one question in a 
 Selecting a session opens the Shepherd HUD on it.
 
 Read-only. It observes Shepherd and navigates to it; it never steers an agent. That boundary is
-structural, not just a matter of discipline: `notifications:send` is deliberately never requested,
-and the manifest declares no permission that could write back to a session.
+structural, not just a matter of discipline: `src/shepherd/client.ts` only ever issues `GET` to
+`/api/sessions` and `/api/holds`, and `notifications:send` is never requested.
 
 ## What it shows
 
@@ -103,6 +103,13 @@ any way to reply to or steer a session. These three are one unit of work: root s
 live because the launcher caps a whole extension-search round at 200 ms, so it needs the poll's
 cache, which needs the poll. Notifications are deliberately absent: Shepherd's web push already
 covers "tell me when something changes", and `notifications:send` is never requested.
+
+`manifest.json` already declares `"searchable": true` and a background `poll` command
+(`intervalSeconds: 60`), and `src/worker.ts` already wires their handlers — but `search()` returns
+`[]` and the `poll` handler does nothing. That is deliberate scaffolding for the deferred root-search
+work above, not a bug: a valid contribution of nothing rather than a broken promise. When root
+search lands, it will additionally require **Settings → Advanced → "Extension Search"** in Asyar,
+which ships off by default.
 
 ## Design notes
 
