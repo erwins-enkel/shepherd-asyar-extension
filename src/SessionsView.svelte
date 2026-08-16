@@ -4,18 +4,25 @@
   //
   // Data is fetched on open. There is no background poll in this slice, so
   // nothing here is cached and nothing is notified.
-  import type { ExtensionContext, IClipboardHistoryService, INetworkService } from 'asyar-sdk/contracts';
-  import { ClipboardItemType } from 'asyar-sdk/contracts';
-  import { fetchPanelData, sessionUrl, type FetchOutcome } from './shepherd/client';
+  import type {
+    ExtensionAction,
+    ExtensionContext,
+    IClipboardHistoryService,
+    INetworkService,
+  } from 'asyar-sdk/contracts';
+  import { ActionContext, ClipboardItemType } from 'asyar-sdk/contracts';
+  import { fetchPanelData, normalizeBaseUrl, sessionUrl, type FetchOutcome } from './shepherd/client';
   import { buildPanel, type PanelModel, type PanelRow } from './shepherd/view-model';
   import { resolveLanguage } from './shepherd/copy';
   import { openExternal } from './opener';
 
-  let { context }: { context: ExtensionContext } = $props();
+  let { context, extensionId }: { context: ExtensionContext; extensionId: string } = $props();
 
   let outcome = $state<FetchOutcome | null>(null);
   let panel = $state<PanelModel>({ needsYou: [], active: [], done: [], orphanHolds: 0 });
   let doneOpen = $state(false);
+  /** Driven by the launcher's own search bar via postMessage — see
+   *  `handleParentMessage` below — not by an input inside this iframe. */
   let filter = $state('');
   let baseUrlForLinks = $state('');
   let openError = $state<string | null>(null);
@@ -25,7 +32,6 @@
    *  `<main>` is not an interactive element, so it must not own key
    *  handling directly. */
   let containerEl = $state<HTMLElement | null>(null);
-  let filterInput = $state<HTMLInputElement | null>(null);
   /** Set when `load()` itself throws or rejects before an `outcome` can be
    *  produced — e.g. `preferences.refresh()` IPC failure or a synchronous
    *  throw from `getService()`. This is not a client-layer failure (see
@@ -40,8 +46,9 @@
   let isLoading = $state(false);
 
   /** Transient confirmation for the copy-deep-link shortcut (see
-   *  `copySessionLink` / `handleKeydown`). Cleared on a short timeout, not a
-   *  poll — a one-shot UI fade, not a re-fetch. */
+   *  `copySessionLink` / `handleKeydown`) and for the "Copy session link"
+   *  ⌘K action (see `copyFocusedSessionLink`). Cleared on a short timeout,
+   *  not a poll — a one-shot UI fade, not a re-fetch. */
   let copyMessage = $state<string | null>(null);
   let copyMessageTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -85,12 +92,13 @@
     }
   }
 
-  /** Re-runs `load()` on demand — the Refresh button's handler, and also
-   *  what the initial mount call now goes through (see bottom of file).
-   *  Clears `fatalError` before retrying: `load()` itself never clears it on
-   *  success (see the field doc above), so without this a fatal error was
-   *  terminal — closing and reopening the panel was the only way out. Guards
-   *  against a second load starting while one is already in flight. */
+  /** Re-runs `load()` on demand — the Refresh button's handler, the "Refresh"
+   *  ⌘K action's handler, and also what the initial mount call now goes
+   *  through (see bottom of file). Clears `fatalError` before retrying:
+   *  `load()` itself never clears it on success (see the field doc above),
+   *  so without this a fatal error was terminal — closing and reopening the
+   *  panel was the only way out. Guards against a second load starting while
+   *  one is already in flight. */
   async function refresh(): Promise<void> {
     if (isLoading) return;
     fatalError = null;
@@ -100,6 +108,19 @@
     } finally {
       isLoading = false;
     }
+  }
+
+  /** Shows a transient status line and resets its own timeout — shared by
+   *  `copySessionLink`'s success/failure paths and `copyFocusedSessionLink`'s
+   *  no-session-to-copy path, so all three share one fade timer instead of
+   *  each reimplementing it. */
+  function showCopyMessage(message: string): void {
+    copyMessage = message;
+    if (copyMessageTimer !== undefined) clearTimeout(copyMessageTimer);
+    copyMessageTimer = setTimeout(() => {
+      copyMessage = null;
+      copyMessageTimer = undefined;
+    }, 3000);
   }
 
   /** Writes a session's HUD deep link to the clipboard, for pasting into a
@@ -117,16 +138,37 @@
         createdAt: Date.now(),
         favorite: false,
       });
-      copyMessage = 'Copied session link to clipboard.';
+      showCopyMessage('Copied session link to clipboard.');
     } catch (error) {
       console.error('Shepherd: copy session link failed:', error);
-      copyMessage = "Couldn't copy the session link.";
+      showCopyMessage("Couldn't copy the session link.");
     }
-    if (copyMessageTimer !== undefined) clearTimeout(copyMessageTimer);
-    copyMessageTimer = setTimeout(() => {
-      copyMessage = null;
-      copyMessageTimer = undefined;
-    }, 3000);
+  }
+
+  /** The first row in render order across the visible sections (Needs you,
+   *  then Active, then Done if expanded) — the "most relevant session"
+   *  fallback used when a ⌘K action needs a session but no row is focused. */
+  function firstVisibleRow(): PanelRow | undefined {
+    return needsYou[0] ?? active[0] ?? (doneOpen ? done[0] : undefined);
+  }
+
+  /** Handler for the "Copy session link" ⌘K action (see the action
+   *  registration effect below). Unlike the Cmd+C keyboard shortcut in
+   *  `handleKeydown` — which does nothing when no row is focused, because a
+   *  bare keystroke firing unexpectedly would be surprising — an explicit
+   *  ⌘K action must not fail silently. Chosen fallback: copy the top of the
+   *  list (`firstVisibleRow()`), i.e. the most relevant session, when
+   *  nothing is focused; report "nothing to copy" only when the list itself
+   *  is empty. */
+  async function copyFocusedSessionLink(): Promise<void> {
+    const activeEl = document.activeElement;
+    const focusedId = activeEl instanceof HTMLElement ? activeEl.dataset.sessionId : undefined;
+    const targetId = focusedId ?? firstVisibleRow()?.id;
+    if (!targetId) {
+      showCopyMessage('No session to copy — the list is empty.');
+      return;
+    }
+    await copySessionLink(targetId);
   }
 
   async function open(row: PanelRow): Promise<void> {
@@ -139,6 +181,26 @@
     // Route taken is worth knowing exactly once: it decides which permission
     // survives in the manifest.
     console.log(`[shepherd] opened via ${route}`);
+    context.hideLauncher();
+  }
+
+  /** Handler for the "Open Shepherd HUD" ⌘K action — same behaviour as the
+   *  manifest's `open-hud` action (handled in worker.ts for the root-search
+   *  surface), reimplemented here for the in-panel surface: open the base
+   *  URL with no `session` query param. */
+  async function openHud(): Promise<void> {
+    openError = null;
+    const base = normalizeBaseUrl(baseUrlForLinks);
+    if (base === '') {
+      openError = "Couldn't open the browser — no Shepherd base URL is configured.";
+      return;
+    }
+    const route = await openExternal(context, base);
+    if (route === 'failed') {
+      openError = "Couldn't open the browser.";
+      return;
+    }
+    console.log(`[shepherd] opened HUD via ${route}`);
     context.hideLauncher();
   }
 
@@ -157,37 +219,123 @@
   let done = $derived(panel.done.filter((r) => matches(r, filter)));
   let isFiltering = $derived(filter.trim() !== '');
 
-  // Autofocus the filter input as soon as the panel has data to show — that
-  // is the launcher idiom: typing narrows the list immediately, with no Tab
-  // needed to reach it.
+  /** The launcher's own search bar (in the PARENT window) now drives
+   *  filtering instead of an input in this iframe — see the (now-removed)
+   *  `Filter…` input this replaces. `asyar-sdk`'s shipped `dist/` never
+   *  actually calls `Extension.onViewSearch`/`onViewSubmit`/`onViewKeydown`
+   *  even though all three are declared on the `Extension` interface —
+   *  confirmed by grepping every `.js` file under `asyar-sdk/dist` for those
+   *  names: they appear only in the `.d.ts`. So implementing them here would
+   *  do nothing; the only way to receive the query is to listen for the
+   *  launcher's postMessage directly, the same way `ExtensionBridge`'s own
+   *  constructor does for `asyar:action:execute` / `asyar:command:execute` /
+   *  `asyar:search:request`. */
+  function handleParentMessage(event: MessageEvent): void {
+    // Defensive on two axes: only the parent frame is a legitimate sender
+    // (mirrors the check `ExtensionBridge`'s own listener uses), and only a
+    // recognised message shape is acted on — everything else, including
+    // messages this SDK sends for unrelated purposes, is ignored outright.
+    if (event.source !== window.parent) return;
+    const type = (event.data as { type?: unknown } | null)?.type;
+    if (type !== 'asyar:view:search' && type !== 'asyar:view:submit') return;
+    const query = (event.data as { payload?: { query?: unknown } }).payload?.query;
+    if (typeof query !== 'string') return;
+    filter = query;
+  }
+
   $effect(() => {
-    if (outcome?.kind === 'ok') {
-      filterInput?.focus();
-    }
+    window.addEventListener('message', handleParentMessage);
+    return () => window.removeEventListener('message', handleParentMessage);
+  });
+
+  /** Registers three actions in the launcher's ⌘K drawer for as long as this
+   *  panel is mounted, and unregisters them on unmount. Manifest-declared
+   *  actions (`ExtensionLoader.registerManifestActions()`) can't cover this:
+   *  they get `ActionContext.CORE` and a visibility rule requiring the
+   *  highlighted root-search item to be one of this extension's commands —
+   *  never true once this view is open. `ActionContext.EXTENSION_VIEW` is
+   *  the value documented as "Action available only within extension views".
+   *
+   *  `execute` is a real closure, not JSON, and this proxy crosses an iframe
+   *  boundary — the same SDK is known to drop functions across `postMessage`
+   *  (see `search()` results in docs/asyar-sdk-notes.md). It survives here
+   *  regardless: reading `ActionServiceProxy.js` / `ExtensionBridge.js`
+   *  shows `registerAction()` keeps the *whole* action object, `execute`
+   *  included, in this iframe's own local `actionRegistry` map, and that
+   *  same iframe's own `window.addEventListener('message', ...)` handler is
+   *  what looks the id up in that same map and calls `.execute()` directly
+   *  when `asyar:action:execute` arrives — the closure never needs to
+   *  survive a `postMessage` round trip. Only the copy sent to the host (for
+   *  the drawer's title/description/icon) strips `execute`, since only that
+   *  copy is serialized. That's confirmed by reading `asyar-sdk/dist`, not
+   *  by a running launcher — whether the host actually addresses
+   *  `asyar:action:execute` back to this specific iframe, and whether it
+   *  honours `ActionContext.EXTENSION_VIEW` when building the drawer, is
+   *  unverified without one. */
+  $effect(() => {
+    const actions: ExtensionAction[] = [
+      {
+        id: 'refresh',
+        title: 'Refresh',
+        description: 'Reload the sessions list from Shepherd.',
+        icon: '🔄',
+        extensionId,
+        context: ActionContext.EXTENSION_VIEW,
+        execute: () => refresh(),
+      },
+      {
+        id: 'copy-session-link',
+        title: 'Copy session link',
+        description:
+          "Copy the focused session's HUD deep link. Falls back to the top session when none is focused.",
+        icon: '🔗',
+        extensionId,
+        context: ActionContext.EXTENSION_VIEW,
+        execute: () => copyFocusedSessionLink(),
+      },
+      {
+        id: 'panel-open-hud',
+        title: 'Open Shepherd HUD',
+        description: 'Open the Shepherd HUD root in your browser, with no session preselected.',
+        icon: '🐑',
+        extensionId,
+        context: ActionContext.EXTENSION_VIEW,
+        execute: () => openHud(),
+      },
+    ];
+    for (const action of actions) context.registerAction(action);
+    return () => {
+      for (const action of actions) context.unregisterAction(action.id);
+    };
   });
 
   /** ArrowDown/ArrowUp move focus across the visible row buttons in render
    *  order (Needs you, then Active, then Done if expanded), which is also
    *  their DOM order since the Done rows only exist when doneOpen is true.
-   *  From the filter input, ArrowDown moves into the first row. Enter is not
-   *  reimplemented here — it already activates a focused row natively via
-   *  <button>. Escape and other keys are left untouched: the launcher owns
-   *  dismissal, not this panel. */
+   *  There is no filter input to seed focus from any more (see
+   *  `handleParentMessage` above) — the launcher's own search bar owns
+   *  typing now, and this iframe deliberately never autofocuses anything on
+   *  mount, so this handler only engages once focus has already entered
+   *  this iframe by some other means (Tab, or a mouse click on a row).
+   *  Enter is not reimplemented here — it already activates a focused row
+   *  natively via <button>. Escape and other keys are left untouched: the
+   *  launcher owns dismissal, not this panel. */
   function handleKeydown(event: KeyboardEvent): void {
     // Cmd/Ctrl+C on a focused row copies that session's HUD deep link.
-    // Chosen over a bare letter because a bare key must stay free for the
-    // filter input; guarded on `sessionId` below so it never fires there.
-    // It also doesn't collide with the launcher's own bindings: asyar-sdk's
-    // navigation-key forwarder (`installNavigationKeyForwarder` in
-    // ExtensionBridge) unconditionally forwards only Cmd/Ctrl+K, Cmd/Ctrl+,
-    // and Cmd/Ctrl+Q to the host, plus Escape/Backspace when no text field is
-    // focused — Cmd/Ctrl+C is in none of those sets, so it reaches this
-    // handler instead of being swallowed upstream. And it is the operator's
-    // existing "copy" instinct, which a novel binding would not be.
+    // Chosen over a bare letter because a bare key must stay free for
+    // ordinary typing; guarded on `sessionId` below so it never fires
+    // without a row focused. It also doesn't collide with the launcher's own
+    // bindings: asyar-sdk's navigation-key forwarder
+    // (`installNavigationKeyForwarder` in ExtensionBridge) unconditionally
+    // forwards only Cmd/Ctrl+K, Cmd/Ctrl+, and Cmd/Ctrl+Q to the host, plus
+    // Escape/Backspace when no text field is focused — Cmd/Ctrl+C is in none
+    // of those sets, so it reaches this handler instead of being swallowed
+    // upstream. And it is the operator's existing "copy" instinct, which a
+    // novel binding would not be.
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
       const active = document.activeElement;
       const sessionId = active instanceof HTMLElement ? active.dataset.sessionId : undefined;
-      if (!sessionId) return; // no row focused (e.g. filter input) — leave default copy alone
+      if (!sessionId) return; // no row focused — leave default copy alone
       event.preventDefault();
       void copySessionLink(sessionId);
       return;
@@ -208,14 +356,10 @@
     }
 
     // ArrowUp: only act when a row is currently focused — otherwise (e.g.
-    // from the filter input) leave the browser's default behaviour alone.
+    // focus is outside this iframe entirely) leave default behaviour alone.
     if (index === -1) return;
     event.preventDefault();
-    if (index === 0) {
-      filterInput?.focus();
-    } else {
-      rows[index - 1].focus();
-    }
+    rows[Math.max(index - 1, 0)].focus();
   }
 
   /** Coarse elapsed label. Deliberately not a live ticker — the panel is open
@@ -251,6 +395,10 @@
     <p class="state copy-status" role="status">{copyMessage}</p>
   {/if}
 
+  {#if openError}
+    <p class="state error">{openError}</p>
+  {/if}
+
   {#if fatalError !== null}
     <p class="state error">Shepherd panel failed to load: {fatalError}</p>
   {:else if outcome === null}
@@ -274,19 +422,6 @@
       Unexpected response from {outcome.baseUrl} — is that a Shepherd core?
     </p>
   {:else}
-    <input
-      class="filter"
-      type="text"
-      placeholder="Filter…"
-      aria-label="Filter sessions"
-      bind:value={filter}
-      bind:this={filterInput}
-    />
-
-    {#if openError}
-      <p class="state error">{openError}</p>
-    {/if}
-
     {#if panel.orphanHolds > 0}
       <p class="state error">
         {panel.orphanHolds}
@@ -417,17 +552,6 @@
 
   .copy-status {
     color: var(--accent-success);
-  }
-
-  .filter {
-    width: 100%;
-    padding: var(--space-2);
-    margin-bottom: var(--space-3);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    font-family: var(--font-ui);
   }
 
   section {

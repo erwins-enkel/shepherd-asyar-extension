@@ -72,5 +72,5 @@ void (async () => {
 const viewName = new URLSearchParams(window.location.search).get('view');
 const target = document.getElementById('app');
 if (viewName === 'SessionsView' && target) {
-  mount(SessionsView, { target, props: { context } });
+  mount(SessionsView, { target, props: { context, extensionId } });
 }
