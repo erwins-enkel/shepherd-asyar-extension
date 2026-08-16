@@ -259,6 +259,32 @@ Two operator steps unblock #5, #7 and #8:
    running stays invisible until the next launch (**CONFIRMED**: the launcher had started at
    21:13:27 and the link was created at 21:22:47; the extension did not appear until a restart).
 
+### Adding a permission withholds *every* permission until the grant is re-reviewed
+
+**CONFIRMED** by observation, explained by **SOURCE-READ** of `permissions.rs` and
+`extensions/consent.rs`.
+
+Granted permissions live in a consent record, and `register_extension_permissions` compares the
+manifest's declared set against it. When the manifest declares **more** than the record covers, the
+decision is `RegistrationDecision::WithholdNeedsConsent` — logged server-side as *"Withholding
+permission registration for '<id>': declared permissions exceed recorded consent"* — and the
+extension is registered with **no permissions at all**, not merely without the new one.
+
+The failure therefore surfaces at whichever gated call runs first, with a misleading message. Adding
+`clipboard:write` to this extension produced:
+
+> `Permission denied: "preferences:read" is required but not declared in manifest.json`
+
+`preferences:read` *was* declared, and had been granted. The wording comes from `pipeline.ts`'s
+`permissionGate`, which prints that sentence whenever a permission is not allowed, whatever the
+reason — the Rust side's real `reason` string is discarded when a `requiredPermission` is present.
+So read this message as **"not granted"**, never as "not declared", and check the manifest before
+believing it.
+
+**Fix:** Settings → Extensions → the extension → **Review permissions** (a red *"Permissions need
+review"* badge appears alongside it), then approve the new set. Expect to do this after every change
+to `permissions[]`.
+
 ### `asyar link`'s default symlink mode cannot work on a release build
 
 **CONFIRMED** by observation, explained by **SOURCE-READ** of `asyar-launcher/src-tauri/src/uri_schemes.rs`.
