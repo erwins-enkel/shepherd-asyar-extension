@@ -181,6 +181,41 @@ describe('fetchPanelData', () => {
     });
   });
 
+  // A session row missing a required string field must not survive to
+  // buildPanel — it would throw later inside the filter's matches(), which is
+  // outside load()'s try/catch, producing a broken render with no message.
+  it('reports malformed when a session value is not a shape-valid object', async () => {
+    const notAnObject = new FakeNet(async (url) =>
+      url.includes('/api/holds') ? ok(HOLDS) : ok(['not-an-object']),
+    );
+    expect(await fetchPanelData(notAnObject, BASE, 't')).toEqual({
+      kind: 'malformed',
+      baseUrl: BASE,
+    });
+
+    const nullEntry = new FakeNet(async (url) =>
+      url.includes('/api/holds') ? ok(HOLDS) : ok([null]),
+    );
+    expect(await fetchPanelData(nullEntry, BASE, 't')).toEqual({
+      kind: 'malformed',
+      baseUrl: BASE,
+    });
+  });
+
+  it('reports malformed when a session is missing a required string field', async () => {
+    for (const field of ['id', 'desig', 'name', 'repoPath']) {
+      const broken = { ...SESSIONS[0] } as Record<string, unknown>;
+      delete broken[field];
+      const net = new FakeNet(async (url) =>
+        url.includes('/api/holds') ? ok(HOLDS) : ok([broken]),
+      );
+      expect(await fetchPanelData(net, BASE, 't')).toEqual({
+        kind: 'malformed',
+        baseUrl: BASE,
+      });
+    }
+  });
+
   it('treats an empty core as success, not an error', async () => {
     const net = new FakeNet(async (url) => (url.includes('/api/holds') ? ok({}) : ok([])));
 

@@ -784,8 +784,14 @@ export function buildPanel(
   const active: PanelRow[] = [];
   const done: PanelRow[] = [];
 
+  // A Map has no prototype chain to fall through to, so a session id that
+  // collides with an Object.prototype member (e.g. `toString`, `__proto__`,
+  // `constructor`) still misses cleanly instead of resolving to an inherited
+  // value.
+  const holdById = new Map(Object.entries(holds));
+
   for (const s of sessions) {
-    const hold = holds[s.id];
+    const hold = holdById.get(s.id);
     const tier = hold ? tierOf(hold.code) : null;
     const row: PanelRow = {
       id: s.id,

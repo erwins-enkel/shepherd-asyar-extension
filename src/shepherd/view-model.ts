@@ -29,6 +29,15 @@ export interface PanelModel {
   needsYou: PanelRow[];
   active: PanelRow[];
   done: PanelRow[];
+  /** Count of holds whose session id was absent from `sessions`. A session
+   *  can vanish independently of its hold — `/api/sessions` and `/api/holds`
+   *  are two concurrent GETs, so a core mid-restart, a version skew, or a
+   *  server-side filter regression can return a well-formed but incomplete
+   *  `sessions` array alongside a full `holds` map. Silently dropping those
+   *  holds would let the panel render "Nothing needs you." while agents are
+   *  in fact blocked — the one failure this extension exists to prevent. The
+   *  caller must surface a non-zero count as a visible warning. */
+  orphanHolds: number;
 }
 
 /** Last segment of a repo path, trailing slashes ignored. Returns the input
@@ -60,9 +69,11 @@ export function buildPanel(
   // `constructor`) still misses cleanly instead of resolving to an inherited
   // value — mirrors the lookup pattern in tiers.ts and copy.ts.
   const holdById = new Map(Object.entries(holds));
+  const matchedHoldIds = new Set<string>();
 
   for (const s of sessions) {
     const hold = holdById.get(s.id);
+    if (hold) matchedHoldIds.add(s.id);
     const tier = hold ? tierOf(hold.code) : null;
     const row: PanelRow = {
       id: s.id,
@@ -89,5 +100,7 @@ export function buildPanel(
   active.sort((a, b) => b.updatedAt - a.updatedAt);
   done.sort((a, b) => b.updatedAt - a.updatedAt);
 
-  return { needsYou, active, done };
+  const orphanHolds = holdById.size - matchedHoldIds.size;
+
+  return { needsYou, active, done, orphanHolds };
 }

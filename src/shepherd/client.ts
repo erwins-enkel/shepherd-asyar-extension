@@ -79,6 +79,28 @@ export async function fetchPanelData(
     return { kind: 'malformed', baseUrl: base };
   }
 
+  // Each session must be a non-null object carrying `id`, `desig`, `name` and
+  // `repoPath` as strings — mirrors the per-value validation holds get below.
+  // Without this, a row missing e.g. `desig` sails through as `Session[]` and
+  // later throws inside the filter's `matches()`, which sits in a `$derived`
+  // outside `load()`'s try/catch: a broken render with no message. `status`
+  // is deliberately left unchecked against a union — that would be more
+  // validation than this endpoint's contract warrants.
+  for (const value of sessions) {
+    if (typeof value !== 'object' || value === null) {
+      return { kind: 'malformed', baseUrl: base };
+    }
+    const v = value as Record<string, unknown>;
+    if (
+      typeof v.id !== 'string' ||
+      typeof v.desig !== 'string' ||
+      typeof v.name !== 'string' ||
+      typeof v.repoPath !== 'string'
+    ) {
+      return { kind: 'malformed', baseUrl: base };
+    }
+  }
+
   // An empty holds object is the ordinary happy path (a core with nothing
   // held) and must never be reported as malformed. For a non-empty object,
   // every value must look like a RawHold: a non-null object carrying a

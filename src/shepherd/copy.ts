@@ -122,8 +122,8 @@ const UNKNOWN: Record<HoldLanguage, string> = {
 // `toString`) still misses cleanly instead of resolving to an inherited
 // value. EN and DE themselves stay untouched object literals — only this
 // derived lookup structure changes.
-const EN_MAP = new Map(Object.entries(EN)) as Map<string, CopyMap[HoldCode]>;
-const DE_MAP = new Map(Object.entries(DE)) as Map<string, CopyMap[HoldCode]>;
+const EN_MAP = new Map(Object.entries(EN));
+const DE_MAP = new Map(Object.entries(DE));
 
 /**
  * Render a hold reason. `code` is `string`, not `HoldCode`, because the wire

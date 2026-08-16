@@ -110,11 +110,21 @@ describe('buildPanel', () => {
     expect(panel.needsYou[0].reason).toBe('Needs you.');
   });
 
-  it('ignores holds for sessions that are not in the list', () => {
+  it('counts holds for sessions that are not in the list as orphanHolds, without fabricating a row', () => {
     const panel = buildPanel([session({ id: 's1' })], { ghost: { code: 'ci-red' } }, 'en');
 
     expect(panel.needsYou).toEqual([]);
     expect(panel.active.map((r) => r.id)).toEqual(['s1']);
+    expect(panel.orphanHolds).toBe(1);
+  });
+
+  it('reports zero orphanHolds when every hold matches a session', () => {
+    const sessions = [session({ id: 's1' })];
+    const holds: HoldsResponse = { s1: { code: 'ci-red' } };
+
+    const panel = buildPanel(sessions, holds, 'en');
+
+    expect(panel.orphanHolds).toBe(0);
   });
 
   it('does not treat prototype-chain properties as holds', () => {

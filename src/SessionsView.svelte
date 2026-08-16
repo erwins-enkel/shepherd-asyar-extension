@@ -13,11 +13,18 @@
   let { context }: { context: ExtensionContext } = $props();
 
   let outcome = $state<FetchOutcome | null>(null);
-  let panel = $state<PanelModel>({ needsYou: [], active: [], done: [] });
+  let panel = $state<PanelModel>({ needsYou: [], active: [], done: [], orphanHolds: 0 });
   let doneOpen = $state(false);
   let filter = $state('');
   let baseUrlForLinks = $state('');
   let openError = $state<string | null>(null);
+  /** Bound to the row container so keyboard navigation can query the
+   *  currently rendered row buttons in render order instead of maintaining a
+   *  parallel index. The listener itself is on `svelte:window` (see below) —
+   *  `<main>` is not an interactive element, so it must not own key
+   *  handling directly. */
+  let containerEl = $state<HTMLElement | null>(null);
+  let filterInput = $state<HTMLInputElement | null>(null);
   /** Set when `load()` itself throws or rejects before an `outcome` can be
    *  produced — e.g. `preferences.refresh()` IPC failure or a synchronous
    *  throw from `getService()`. This is not a client-layer failure (see
@@ -57,7 +64,7 @@
         const lang = resolveLanguage(prefs.language, globalThis.navigator?.language);
         panel = buildPanel(result.sessions, result.holds, lang);
       } else {
-        panel = { needsYou: [], active: [], done: [] };
+        panel = { needsYou: [], active: [], done: [], orphanHolds: 0 };
       }
     } catch (error) {
       console.error('Shepherd panel load failed:', error);
@@ -66,6 +73,7 @@
   }
 
   async function open(row: PanelRow): Promise<void> {
+    openError = null;
     const route = await openExternal(context, sessionUrl(baseUrlForLinks, row.id));
     if (route === 'failed') {
       openError = "Couldn't open the browser.";
@@ -90,6 +98,49 @@
   let needsYou = $derived(panel.needsYou.filter((r) => matches(r, filter)));
   let active = $derived(panel.active.filter((r) => matches(r, filter)));
   let done = $derived(panel.done.filter((r) => matches(r, filter)));
+  let isFiltering = $derived(filter.trim() !== '');
+
+  // Autofocus the filter input as soon as the panel has data to show — that
+  // is the launcher idiom: typing narrows the list immediately, with no Tab
+  // needed to reach it.
+  $effect(() => {
+    if (outcome?.kind === 'ok') {
+      filterInput?.focus();
+    }
+  });
+
+  /** ArrowDown/ArrowUp move focus across the visible row buttons in render
+   *  order (Needs you, then Active, then Done if expanded), which is also
+   *  their DOM order since the Done rows only exist when doneOpen is true.
+   *  From the filter input, ArrowDown moves into the first row. Enter is not
+   *  reimplemented here — it already activates a focused row natively via
+   *  <button>. Escape and other keys are left untouched: the launcher owns
+   *  dismissal, not this panel. */
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const rows = containerEl
+      ? Array.from(containerEl.querySelectorAll<HTMLButtonElement>('button.row'))
+      : [];
+    if (rows.length === 0) return;
+
+    const index = rows.indexOf(document.activeElement as HTMLButtonElement);
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      rows[index === -1 ? 0 : Math.min(index + 1, rows.length - 1)].focus();
+      return;
+    }
+
+    // ArrowUp: only act when a row is currently focused — otherwise (e.g.
+    // from the filter input) leave the browser's default behaviour alone.
+    if (index === -1) return;
+    event.preventDefault();
+    if (index === 0) {
+      filterInput?.focus();
+    } else {
+      rows[index - 1].focus();
+    }
+  }
 
   /** Coarse elapsed label. Deliberately not a live ticker — the panel is open
    *  for seconds at a time and a timer would be motion for its own sake. */
@@ -105,7 +156,9 @@
   void load();
 </script>
 
-<main>
+<svelte:window onkeydown={handleKeydown} />
+
+<main bind:this={containerEl}>
   {#if fatalError !== null}
     <p class="state error">Shepherd panel failed to load: {fatalError}</p>
   {:else if outcome === null}
@@ -135,16 +188,25 @@
       placeholder="Filter…"
       aria-label="Filter sessions"
       bind:value={filter}
+      bind:this={filterInput}
     />
 
     {#if openError}
       <p class="state error">{openError}</p>
     {/if}
 
+    {#if panel.orphanHolds > 0}
+      <p class="state error">
+        {panel.orphanHolds}
+        {panel.orphanHolds === 1 ? 'hold references a session' : 'holds reference sessions'} this
+        panel didn't receive — the list may be incomplete.
+      </p>
+    {/if}
+
     <section>
       <h2>Needs you <span class="count">{needsYou.length}</span></h2>
       {#if needsYou.length === 0}
-        <p class="state">Nothing needs you.</p>
+        <p class="state">{isFiltering ? 'No matches for this filter.' : 'Nothing needs you.'}</p>
       {:else}
         <ul>
           {#each needsYou as row (row.id)}
@@ -164,7 +226,7 @@
     <section>
       <h2>Active <span class="count">{active.length}</span></h2>
       {#if active.length === 0}
-        <p class="state">Nothing active.</p>
+        <p class="state">{isFiltering ? 'No matches for this filter.' : 'Nothing active.'}</p>
       {:else}
         <ul>
           {#each active as row (row.id)}
