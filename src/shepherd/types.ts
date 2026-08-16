@@ -63,6 +63,7 @@ export type SessionStatus = 'running' | 'idle' | 'blocked' | 'done' | 'archived'
  *  so no archive handling is needed downstream. */
 export interface Session {
   id: string;
+  /** Human-facing designation, e.g. `TASK-42`. */
   desig: string;
   name: string;
   repoPath: string;
