@@ -13,7 +13,7 @@ Every entry is tagged:
 |---|---|
 | **CONFIRMED** | Executed in this repository. Reproducible with the commands given. |
 | **SOURCE-READ** | Read out of launcher or SDK source at the pinned commit. Not executed. |
-| **UNVERIFIED** | Needs a running launcher session with this extension loaded. Asyar itself **is** installed on this machine — `/Applications/Asyar.app`, with app data at `~/Library/Application Support/org.asyar.app/` (**CONFIRMED**: `ls -d /Applications/Asyar.app`, `ls ~/Library/Application\ Support/org.asyar.app/`) — but this extension has never been attached to a running session, so nothing about actually loading or running it has been observed. |
+| **UNVERIFIED** | Needs a running launcher session exercising the behaviour in question. Asyar **is** installed on this machine — `/Applications/Asyar.app` (release build `0.1.1-41`), app data at `~/Library/Application Support/org.asyar.app/` — and this extension **has** now been attached and loaded: it appears in the launcher and its worker iframe is mounted. What remains unverified is everything downstream of that: the panel rendering against a live core, which URL-opening route fires, action dispatch, and the clipboard write. |
 
 > The Asyar tutorials are stale and do not build. Trust order for anything not settled here:
 > **launcher/SDK source → shipped third-party extensions → docs.**
