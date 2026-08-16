@@ -22,7 +22,7 @@ import type {
 } from 'asyar-sdk/contracts';
 import manifest from '../manifest.json';
 
-const FALLBACK_ID = 'blog.osthoff.shepherd';
+const FALLBACK_ID = 'dev.erwins-enkel.shepherd';
 
 const extensionId =
   window.location.hostname === 'localhost' ||

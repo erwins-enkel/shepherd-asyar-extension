@@ -1,5 +1,5 @@
 {
-  "name": "blog.osthoff.shepherd",
+  "name": "dev.erwins-enkel.shepherd",
   "version": "0.1.0",
   "description": "Open Shepherd sessions and see which ones are waiting on you.",
   "type": "module",

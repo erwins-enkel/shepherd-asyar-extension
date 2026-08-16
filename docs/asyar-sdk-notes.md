@@ -95,7 +95,12 @@ mean the launcher will accept the manifest.
 (**SOURCE-READ**, `asyar-sdk/dist/cli/lib/manifest.js`):
 
 - `id` must match `/^[a-z][a-z0-9\-]*(\.[a-z][a-z0-9\-]*)+$/`. Hyphens *are* allowed by the CLI,
-  but the docs' regex forbids them — avoiding hyphens satisfies both. `blog.osthoff.shepherd` does.
+  though the docs' regex forbids them. This project's id is `dev.erwins-enkel.shepherd` — the
+  reverse-DNS form of the owner's domain `erwins-enkel.dev`, hyphen included. Two things make that
+  safe despite the docs: the CLI regex above accepts it (verified against the installed
+  `manifest.js`), and the launcher itself never validates the id's charset — it only requires that
+  `id` equals the on-disk directory name. The shipped `org.erwinsenkel.home-assistant` is further
+  evidence that a hyphenated id loads. Prefer matching the real domain over appeasing a stale doc.
 - `description` must be **10–200 characters**. Undocumented and easy to trip.
 - `name` 2–50 characters; `version` valid semver; `author` required.
 - `permissions[]` are checked against a closed 46-entry list. `storage` is **not** on it —
@@ -250,7 +255,7 @@ Two operator steps unblock #5, #7 and #8:
      already done here — the installation method (DMG vs. otherwise) was not itself observed.
 2. Attach this extension to a running session: `asyar attach <dir>` or `asyar link`. **Not done
    yet** — `dev_extensions.json` on this machine currently registers only
-   `org.asyar.sdk-playground`, a different extension, not `blog.osthoff.shepherd`
+   `org.asyar.sdk-playground`, a different extension, not `dev.erwins-enkel.shepherd`
    (**CONFIRMED**, `cat ~/Library/Application\ Support/org.asyar.app/dev_extensions.json`).
 
 Open questions that only a running launcher can answer:

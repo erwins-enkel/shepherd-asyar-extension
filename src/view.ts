@@ -22,7 +22,7 @@ import {
 import manifest from '../manifest.json';
 import SessionsView from './SessionsView.svelte';
 
-const FALLBACK_ID = 'blog.osthoff.shepherd';
+const FALLBACK_ID = 'dev.erwins-enkel.shepherd';
 
 // Copied from the shipped asyar-browser-extension: under the dev server the
 // id is the first path segment, otherwise the iframe hostname is the id.
