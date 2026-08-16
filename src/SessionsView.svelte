@@ -5,9 +5,10 @@
   // Data is fetched on open. There is no background poll in this slice, so
   // nothing here is cached and nothing is notified.
   import type { ExtensionContext, INetworkService } from 'asyar-sdk/contracts';
-  import { fetchPanelData, type FetchOutcome } from './shepherd/client';
+  import { fetchPanelData, sessionUrl, type FetchOutcome } from './shepherd/client';
   import { buildPanel, type PanelModel, type PanelRow } from './shepherd/view-model';
   import { resolveLanguage } from './shepherd/copy';
+  import { openExternal } from './opener';
 
   let { context }: { context: ExtensionContext } = $props();
 
@@ -15,6 +16,8 @@
   let panel = $state<PanelModel>({ needsYou: [], active: [], done: [] });
   let doneOpen = $state(false);
   let filter = $state('');
+  let baseUrlForLinks = $state('');
+  let openError = $state<string | null>(null);
   /** Set when `load()` itself throws or rejects before an `outcome` can be
    *  produced — e.g. `preferences.refresh()` IPC failure or a synchronous
    *  throw from `getService()`. This is not a client-layer failure (see
@@ -32,7 +35,7 @@
     token: string | undefined;
     language: string | undefined;
   }> {
-    let values = context.preferences.values as Record<string, unknown>;
+    let values = context.preferences.values;
     if (typeof values?.apiBaseUrl !== 'string' || values.apiBaseUrl.trim() === '') {
       values = await context.preferences.refresh();
     }
@@ -46,6 +49,7 @@
   async function load(): Promise<void> {
     try {
       const prefs = await readPreferences();
+      baseUrlForLinks = prefs.baseUrl;
       const net = context.getService<INetworkService>('network');
       const result = await fetchPanelData(net, prefs.baseUrl, prefs.token);
       outcome = result;
@@ -56,8 +60,21 @@
         panel = { needsYou: [], active: [], done: [] };
       }
     } catch (error) {
+      console.error('Shepherd panel load failed:', error);
       fatalError = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  async function open(row: PanelRow): Promise<void> {
+    const route = await openExternal(context, sessionUrl(baseUrlForLinks, row.id));
+    if (route === 'failed') {
+      openError = "Couldn't open the browser.";
+      return;
+    }
+    // Route taken is worth knowing exactly once: it decides which permission
+    // survives in the manifest.
+    console.log(`[shepherd] opened via ${route}`);
+    context.hideLauncher();
   }
 
   function matches(row: PanelRow, needle: string): boolean {
@@ -120,6 +137,10 @@
       bind:value={filter}
     />
 
+    {#if openError}
+      <p class="state error">{openError}</p>
+    {/if}
+
     <section>
       <h2>Needs you <span class="count">{needsYou.length}</span></h2>
       {#if needsYou.length === 0}
@@ -127,11 +148,13 @@
       {:else}
         <ul>
           {#each needsYou as row (row.id)}
-            <li class="row" data-tier={row.tier}>
-              <span class="desig">{row.desig}</span>
-              <span class="name">{row.name}</span>
-              <span class="repo">{row.repo}</span>
-              <span class="reason">{row.reason}</span>
+            <li data-tier={row.tier}>
+              <button class="row" onclick={() => open(row)}>
+                <span class="desig">{row.desig}</span>
+                <span class="name">{row.name}</span>
+                <span class="repo">{row.repo}</span>
+                <span class="reason">{row.reason}</span>
+              </button>
             </li>
           {/each}
         </ul>
@@ -145,11 +168,13 @@
       {:else}
         <ul>
           {#each active as row (row.id)}
-            <li class="row">
-              <span class="desig">{row.desig}</span>
-              <span class="name">{row.name}</span>
-              <span class="repo">{row.repo}</span>
-              <span class="reason">{row.reason ?? `${row.status} · ${elapsed(row.updatedAt)}`}</span>
+            <li>
+              <button class="row" onclick={() => open(row)}>
+                <span class="desig">{row.desig}</span>
+                <span class="name">{row.name}</span>
+                <span class="repo">{row.repo}</span>
+                <span class="reason">{row.reason ?? `${row.status} · ${elapsed(row.updatedAt)}`}</span>
+              </button>
             </li>
           {/each}
         </ul>
@@ -169,11 +194,13 @@
       {#if doneOpen}
         <ul>
           {#each done as row (row.id)}
-            <li class="row">
-              <span class="desig">{row.desig}</span>
-              <span class="name">{row.name}</span>
-              <span class="repo">{row.repo}</span>
-              <span class="reason">{elapsed(row.updatedAt)}</span>
+            <li>
+              <button class="row" onclick={() => open(row)}>
+                <span class="desig">{row.desig}</span>
+                <span class="name">{row.name}</span>
+                <span class="repo">{row.repo}</span>
+                <span class="reason">{elapsed(row.updatedAt)}</span>
+              </button>
             </li>
           {/each}
         </ul>
@@ -234,6 +261,11 @@
     padding: 0;
   }
 
+  li[data-tier='1'] {
+    border-left: 2px solid var(--accent-primary);
+    border-radius: var(--radius-md);
+  }
+
   .row {
     display: grid;
     grid-template-columns: 6rem 1fr 8rem;
@@ -243,8 +275,19 @@
     border-radius: var(--radius-md);
   }
 
-  .row[data-tier='1'] {
-    border-left: 2px solid var(--accent-primary);
+  button.row {
+    width: 100%;
+    background: none;
+    border: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  button.row:hover,
+  button.row:focus-visible {
+    background: var(--bg-secondary);
   }
 
   .desig {
