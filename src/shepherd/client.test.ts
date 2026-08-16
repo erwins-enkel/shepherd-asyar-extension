@@ -186,4 +186,58 @@ describe('fetchPanelData', () => {
 
     expect(await fetchPanelData(net, BASE, 't')).toEqual({ kind: 'ok', sessions: [], holds: {} });
   });
+
+  // A future Shepherd version could wrap the holds map, e.g.
+  // `{ "holds": { "s1": {...} } }` instead of the bare `{ "s1": {...} }`.
+  // That wrapper is a non-null, non-array object, so the old guard let it
+  // through — no session id would ever match the single "holds" key, every
+  // session would read as un-held, and the panel would wrongly report
+  // "Nothing needs you". This must be classified malformed instead.
+  it('reports malformed when the holds payload is wrapped in an envelope', async () => {
+    const wrapped = { holds: { s1: { code: 'blocked-menu' } } };
+    const net = new FakeNet(async (url) => (url.includes('/api/holds') ? ok(wrapped) : ok(SESSIONS)));
+
+    expect(await fetchPanelData(net, BASE, 't')).toEqual({ kind: 'malformed', baseUrl: BASE });
+  });
+
+  it('reports malformed when holds values are not hold-shaped', async () => {
+    const stringValues = new FakeNet(async (url) =>
+      url.includes('/api/holds') ? ok({ s1: 'blocked-menu' }) : ok(SESSIONS),
+    );
+    expect(await fetchPanelData(stringValues, BASE, 't')).toEqual({
+      kind: 'malformed',
+      baseUrl: BASE,
+    });
+
+    const missingCode = new FakeNet(async (url) =>
+      url.includes('/api/holds') ? ok({ s1: { reason: 'x' } }) : ok(SESSIONS),
+    );
+    expect(await fetchPanelData(missingCode, BASE, 't')).toEqual({
+      kind: 'malformed',
+      baseUrl: BASE,
+    });
+  });
+
+  it('reports ok for an empty holds object — the ordinary happy path, never malformed', async () => {
+    const net = new FakeNet(async (url) => (url.includes('/api/holds') ? ok({}) : ok(SESSIONS)));
+
+    expect(await fetchPanelData(net, BASE, 't')).toEqual({
+      kind: 'ok',
+      sessions: SESSIONS,
+      holds: {},
+    });
+  });
+
+  it('accepts a valid holds payload where a value carries params', async () => {
+    const withParams = { s1: { code: 'quota-rework', params: { round: 2, cap: 5 } } };
+    const net = new FakeNet(async (url) =>
+      url.includes('/api/holds') ? ok(withParams) : ok(SESSIONS),
+    );
+
+    expect(await fetchPanelData(net, BASE, 't')).toEqual({
+      kind: 'ok',
+      sessions: SESSIONS,
+      holds: withParams,
+    });
+  });
 });

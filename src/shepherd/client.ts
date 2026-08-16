@@ -79,6 +79,26 @@ export async function fetchPanelData(
     return { kind: 'malformed', baseUrl: base };
   }
 
+  // An empty holds object is the ordinary happy path (a core with nothing
+  // held) and must never be reported as malformed. For a non-empty object,
+  // every value must look like a RawHold: a non-null object carrying a
+  // `code` of type string. This catches, in particular, a future Shepherd
+  // response wrapped in an envelope like `{ "holds": { "<id>": {...} } }` —
+  // that wrapper is itself a non-null, non-array object, so without this
+  // check it would pass through as an (empty-looking) holds map and every
+  // session would silently read as un-held.
+  //
+  // Iterate with Object.values, not bracket access on the untrusted payload,
+  // so a key like "toString" cannot fall through to Object.prototype.
+  for (const value of Object.values(holds as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null) {
+      return { kind: 'malformed', baseUrl: base };
+    }
+    if (typeof (value as { code?: unknown }).code !== 'string') {
+      return { kind: 'malformed', baseUrl: base };
+    }
+  }
+
   return {
     kind: 'ok',
     sessions: sessions as Session[],
