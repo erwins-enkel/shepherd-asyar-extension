@@ -5,3 +5,6 @@ node_modules/
 .env.*
 dist/
 build/
+
+# SDD scratch (ledger, briefs, review packages)
+.superpowers/
