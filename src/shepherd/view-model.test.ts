@@ -117,6 +117,17 @@ describe('buildPanel', () => {
     expect(panel.active.map((r) => r.id)).toEqual(['s1']);
   });
 
+  it('does not treat prototype-chain properties as holds', () => {
+    for (const id of ['toString', '__proto__', 'constructor']) {
+      const panel = buildPanel([session({ id, status: 'running' })], {}, 'en');
+
+      expect(panel.active.map((r) => r.id)).toEqual([id]);
+      expect(panel.needsYou).toEqual([]);
+      expect(panel.active[0].reason).toBeNull();
+      expect(panel.active[0].tier).toBeNull();
+    }
+  });
+
   it('exposes the repo basename and renders in the requested language', () => {
     const sessions = [session({ id: 's1', repoPath: '/home/moe/projects/shepherd' })];
     const holds: HoldsResponse = { s1: { code: 'blocked-menu' } };

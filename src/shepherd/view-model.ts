@@ -39,6 +39,13 @@ export function repoBasename(repoPath: string): string {
   return segment && segment.length > 0 ? segment : repoPath;
 }
 
+/**
+ * Join sessions with their holds and classify each into one of three panel
+ * sections. Precedence is hold before status: a tier-1/2 hold always lands a
+ * row in `needsYou` and a tier-3 hold always lands it in `active`, regardless
+ * of `status`; only an unheld session is classified by `status` (`done` vs.
+ * everything else, which falls into `active`).
+ */
 export function buildPanel(
   sessions: Session[],
   holds: HoldsResponse,
@@ -48,8 +55,14 @@ export function buildPanel(
   const active: PanelRow[] = [];
   const done: PanelRow[] = [];
 
+  // A Map has no prototype chain to fall through to, so a session id that
+  // collides with an Object.prototype member (e.g. `toString`, `__proto__`,
+  // `constructor`) still misses cleanly instead of resolving to an inherited
+  // value — mirrors the lookup pattern in tiers.ts and copy.ts.
+  const holdById = new Map(Object.entries(holds));
+
   for (const s of sessions) {
-    const hold = holds[s.id];
+    const hold = holdById.get(s.id);
     const tier = hold ? tierOf(hold.code) : null;
     const row: PanelRow = {
       id: s.id,
@@ -68,7 +81,10 @@ export function buildPanel(
     else active.push(row);
   }
 
-  // Most urgent first; within a tier, the longest wait first.
+  // Most urgent first; within a tier, the longest wait first. Every row here
+  // was pushed because its tier is 1 or 2 (see the classification above), so
+  // `tier` is never null at this point; the `?? 1` is belt-and-braces, not
+  // reachable.
   needsYou.sort((a, b) => (a.tier ?? 1) - (b.tier ?? 1) || a.updatedAt - b.updatedAt);
   active.sort((a, b) => b.updatedAt - a.updatedAt);
   done.sort((a, b) => b.updatedAt - a.updatedAt);
