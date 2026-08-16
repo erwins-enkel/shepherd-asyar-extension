@@ -8,7 +8,13 @@
   "icon": "🐑",
   "searchable": true,
   "asyarSdk": "^4.6.0",
-  "permissions": ["network", "shell:open-url", "browser:tabs.write", "preferences:read"],
+  "permissions": [
+    "network",
+    "shell:open-url",
+    "browser:tabs.write",
+    "preferences:read",
+    "clipboard:write"
+  ],
   "preferences": [
     {
       "name": "apiBaseUrl",
@@ -58,5 +64,13 @@
   ],
   "background": {
     "main": "dist/worker.js"
-  }
+  },
+  "actions": [
+    {
+      "id": "open-hud",
+      "title": "Open Shepherd HUD",
+      "description": "Open the Shepherd HUD root in your browser, with no session preselected.",
+      "icon": "🐑"
+    }
+  ]
 }

@@ -16,8 +16,17 @@
 // So: try A, fall back to B, and return which one won. Once the first real run
 // answers it, delete the loser AND its permission from manifest.json — the
 // narrower permission set is the point of finding out.
+//
+// Callable from both roles. The parameter is typed as `ExtensionContextCore`
+// (the base both `asyar-sdk/view`'s and `asyar-sdk/worker`'s `ExtensionContext`
+// extend), not the full view-only `ExtensionContext`, so the worker's HUD
+// action handler can call this too. `getService` is all this module uses, and
+// it lives on the base class; `asyar-sdk/worker`'s proxy bag does include a
+// `browser` entry (confirmed by reading `buildWorkerProxyBag()` in
+// `asyar-sdk/dist/worker.js`), so route B is genuinely reachable from the
+// worker as well, not just route A.
 // ─────────────────────────────────────────────────────────────────────────
-import type { ExtensionContext, IBrowserService } from 'asyar-sdk/contracts';
+import type { ExtensionContextCore, IBrowserService } from 'asyar-sdk/contracts';
 import { messageBroker } from 'asyar-sdk/contracts';
 
 export type OpenRoute = 'broker' | 'browser' | 'failed';
@@ -29,7 +38,7 @@ export type OpenRoute = 'broker' | 'browser' | 'failed';
  *  the panel looking frozen. */
 const OPEN_INVOKE_TIMEOUT_MS = 3_000;
 
-export async function openExternal(context: ExtensionContext, url: string): Promise<OpenRoute> {
+export async function openExternal(context: ExtensionContextCore, url: string): Promise<OpenRoute> {
   try {
     await messageBroker.invoke('opener:open', { url }, undefined, OPEN_INVOKE_TIMEOUT_MS);
     return 'broker';

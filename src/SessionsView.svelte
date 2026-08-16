@@ -4,7 +4,8 @@
   //
   // Data is fetched on open. There is no background poll in this slice, so
   // nothing here is cached and nothing is notified.
-  import type { ExtensionContext, INetworkService } from 'asyar-sdk/contracts';
+  import type { ExtensionContext, IClipboardHistoryService, INetworkService } from 'asyar-sdk/contracts';
+  import { ClipboardItemType } from 'asyar-sdk/contracts';
   import { fetchPanelData, sessionUrl, type FetchOutcome } from './shepherd/client';
   import { buildPanel, type PanelModel, type PanelRow } from './shepherd/view-model';
   import { resolveLanguage } from './shepherd/copy';
@@ -31,6 +32,18 @@
    *  `FetchOutcome` in client.ts), so it gets its own state rather than a
    *  new union variant on a type that module is shared and owns. */
   let fatalError = $state<string | null>(null);
+
+  /** Guards `refresh()` against overlapping loads and drives the Refresh
+   *  button's busy state. Set for the very first load too — `refresh()` is
+   *  what the bottom-of-file `void refresh()` call now uses instead of
+   *  calling `load()` directly. */
+  let isLoading = $state(false);
+
+  /** Transient confirmation for the copy-deep-link shortcut (see
+   *  `copySessionLink` / `handleKeydown`). Cleared on a short timeout, not a
+   *  poll — a one-shot UI fade, not a re-fetch. */
+  let copyMessage = $state<string | null>(null);
+  let copyMessageTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Read a preference, recovering from an empty boot snapshot.
    *
@@ -70,6 +83,50 @@
       console.error('Shepherd panel load failed:', error);
       fatalError = error instanceof Error ? error.message : String(error);
     }
+  }
+
+  /** Re-runs `load()` on demand — the Refresh button's handler, and also
+   *  what the initial mount call now goes through (see bottom of file).
+   *  Clears `fatalError` before retrying: `load()` itself never clears it on
+   *  success (see the field doc above), so without this a fatal error was
+   *  terminal — closing and reopening the panel was the only way out. Guards
+   *  against a second load starting while one is already in flight. */
+  async function refresh(): Promise<void> {
+    if (isLoading) return;
+    fatalError = null;
+    isLoading = true;
+    try {
+      await load();
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  /** Writes a session's HUD deep link to the clipboard, for pasting into a
+   *  message instead of opening a browser. Always builds the URL through
+   *  `sessionUrl()` — never hand-assembled — so it can never drift from the
+   *  one `open()` navigates to. */
+  async function copySessionLink(sessionId: string): Promise<void> {
+    const url = sessionUrl(baseUrlForLinks, sessionId);
+    try {
+      const clipboard = context.getService<IClipboardHistoryService>('clipboard');
+      await clipboard.writeToClipboard({
+        id: `shepherd-link-${sessionId}-${Date.now()}`,
+        type: ClipboardItemType.Text,
+        content: url,
+        createdAt: Date.now(),
+        favorite: false,
+      });
+      copyMessage = 'Copied session link to clipboard.';
+    } catch (error) {
+      console.error('Shepherd: copy session link failed:', error);
+      copyMessage = "Couldn't copy the session link.";
+    }
+    if (copyMessageTimer !== undefined) clearTimeout(copyMessageTimer);
+    copyMessageTimer = setTimeout(() => {
+      copyMessage = null;
+      copyMessageTimer = undefined;
+    }, 3000);
   }
 
   async function open(row: PanelRow): Promise<void> {
@@ -117,6 +174,25 @@
    *  <button>. Escape and other keys are left untouched: the launcher owns
    *  dismissal, not this panel. */
   function handleKeydown(event: KeyboardEvent): void {
+    // Cmd/Ctrl+C on a focused row copies that session's HUD deep link.
+    // Chosen over a bare letter because a bare key must stay free for the
+    // filter input; guarded on `sessionId` below so it never fires there.
+    // It also doesn't collide with the launcher's own bindings: asyar-sdk's
+    // navigation-key forwarder (`installNavigationKeyForwarder` in
+    // ExtensionBridge) unconditionally forwards only Cmd/Ctrl+K, Cmd/Ctrl+,
+    // and Cmd/Ctrl+Q to the host, plus Escape/Backspace when no text field is
+    // focused — Cmd/Ctrl+C is in none of those sets, so it reaches this
+    // handler instead of being swallowed upstream. And it is the operator's
+    // existing "copy" instinct, which a novel binding would not be.
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+      const active = document.activeElement;
+      const sessionId = active instanceof HTMLElement ? active.dataset.sessionId : undefined;
+      if (!sessionId) return; // no row focused (e.g. filter input) — leave default copy alone
+      event.preventDefault();
+      void copySessionLink(sessionId);
+      return;
+    }
+
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
     const rows = containerEl
       ? Array.from(containerEl.querySelectorAll<HTMLButtonElement>('button.row'))
@@ -153,12 +229,28 @@
     return `${Math.round(hours / 24)}d ago`;
   }
 
-  void load();
+  void refresh();
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
 <main bind:this={containerEl}>
+  <div class="toolbar">
+    <button
+      type="button"
+      class="refresh"
+      onclick={() => void refresh()}
+      disabled={isLoading}
+      aria-busy={isLoading}
+    >
+      {isLoading ? 'Refreshing…' : 'Refresh'}
+    </button>
+  </div>
+
+  {#if copyMessage}
+    <p class="state copy-status" role="status">{copyMessage}</p>
+  {/if}
+
   {#if fatalError !== null}
     <p class="state error">Shepherd panel failed to load: {fatalError}</p>
   {:else if outcome === null}
@@ -211,7 +303,12 @@
         <ul>
           {#each needsYou as row (row.id)}
             <li data-tier={row.tier}>
-              <button type="button" class="row" onclick={() => open(row)}>
+              <button
+                type="button"
+                class="row"
+                data-session-id={row.id}
+                onclick={() => open(row)}
+              >
                 <span class="desig">{row.desig}</span>
                 <span class="name">{row.name}</span>
                 <span class="repo">{row.repo}</span>
@@ -231,7 +328,12 @@
         <ul>
           {#each active as row (row.id)}
             <li>
-              <button type="button" class="row" onclick={() => open(row)}>
+              <button
+                type="button"
+                class="row"
+                data-session-id={row.id}
+                onclick={() => open(row)}
+              >
                 <span class="desig">{row.desig}</span>
                 <span class="name">{row.name}</span>
                 <span class="repo">{row.repo}</span>
@@ -258,7 +360,12 @@
         <ul>
           {#each done as row (row.id)}
             <li>
-              <button type="button" class="row" onclick={() => open(row)}>
+              <button
+                type="button"
+                class="row"
+                data-session-id={row.id}
+                onclick={() => open(row)}
+              >
                 <span class="desig">{row.desig}</span>
                 <span class="name">{row.name}</span>
                 <span class="repo">{row.repo}</span>
@@ -278,6 +385,38 @@
     color: var(--text-primary);
     font-family: var(--font-ui);
     font-size: var(--font-size-base);
+  }
+
+  .toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: var(--space-2);
+  }
+
+  .refresh {
+    padding: var(--space-1) var(--space-3);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font: inherit;
+    font-size: var(--font-size-sm);
+    cursor: pointer;
+  }
+
+  .refresh:hover:not(:disabled),
+  .refresh:focus-visible {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .refresh:disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  .copy-status {
+    color: var(--accent-success);
   }
 
   .filter {

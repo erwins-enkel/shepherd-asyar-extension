@@ -21,6 +21,8 @@ import type {
   ILogService,
 } from 'asyar-sdk/contracts';
 import manifest from '../manifest.json';
+import { normalizeBaseUrl } from './shepherd/client';
+import { openExternal } from './opener';
 
 const FALLBACK_ID = 'dev.erwins-enkel.shepherd';
 
@@ -34,6 +36,34 @@ const workerContext = new WorkerExtensionContext();
 workerContext.setExtensionId(extensionId);
 
 const log = workerContext.getService<ILogService>('log');
+
+/** Handler for the manifest's "open-hud" action (`act_<extensionId>_open-hud`
+ *  once dispatched — see `registerActionHandler` below). Opens the HUD root,
+ *  deliberately with no `session` query param: this is the always-available
+ *  root-search action, not a per-session deep link (those live in the panel,
+ *  see SessionsView.svelte's `open()`).
+ *
+ *  Reads `apiBaseUrl` the same way the panel does: a synchronous read off the
+ *  preferences snapshot, recovering via `refresh()` (IPC, needs
+ *  `preferences:read`) if the snapshot arrived empty. */
+async function handleOpenHud(): Promise<void> {
+  let values = workerContext.preferences.values;
+  if (typeof values?.apiBaseUrl !== 'string' || values.apiBaseUrl.trim() === '') {
+    values = await workerContext.preferences.refresh();
+  }
+  const baseUrl = typeof values?.apiBaseUrl === 'string' ? normalizeBaseUrl(values.apiBaseUrl) : '';
+  if (baseUrl.length === 0) {
+    log.warn(`[${extensionId}] "Open Shepherd HUD" action fired with no apiBaseUrl configured`);
+    return;
+  }
+
+  const route = await openExternal(workerContext, baseUrl);
+  if (route === 'failed') {
+    log.error(`[${extensionId}] "Open Shepherd HUD" action: no opener route succeeded`);
+    return;
+  }
+  log.info(`[${extensionId}] opened Shepherd HUD via ${route}`);
+}
 
 // The Extension interface's `initialize(ctx)` expects the contracts-flavored
 // ExtensionContext, a sibling (not a supertype) of the worker-flavored class
@@ -73,6 +103,15 @@ extensionBridge.registerManifest(
   manifest as Parameters<typeof extensionBridge.registerManifest>[0],
 );
 extensionBridge.registerExtensionImplementation(extensionId, workerExtension);
+
+// Root-search-only affordance: the launcher only surfaces manifest `actions`
+// while this extension's command is highlighted in root search, before the
+// panel opens (see docs/asyar-sdk-notes.md). The launcher dispatches it as
+// `act_<extensionId>_open-hud`; `registerActionHandler` builds that exact id
+// internally, so the manifest's plain `"open-hud"` is passed here unprefixed.
+// Registered unconditionally (not inside `activate()`) so the action works
+// even if `activate()` itself fails.
+extensionBridge.registerActionHandler(extensionId, 'open-hud', handleOpenHud);
 
 void (async () => {
   try {
