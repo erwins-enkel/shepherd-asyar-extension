@@ -45,7 +45,9 @@ Probed against the live core on 2026-08-16 with a minted `shp_` token. Both endp
 Codes observed in the wild: `autopilot-paused` (4), `blocked-menu` (3), `quota-rework` (2),
 `recap-attention`, `quota-plan`, `critic-rework`. Params observed: `findings`, `question`.
 
-Status distribution observed: `done` (21), `blocked` (3) — the finding that drives §7. Note that
+Status distribution observed: `done` (21), `blocked` (3) — the finding that drives §7. Crossed
+against holds: 3 `blocked`+held, 9 **`done`+held**, 12 `done`+unheld. That middle group is why §7
+classifies by hold before status. Note that
 `running` and `idle` did **not** appear in this snapshot, so the Active section's behaviour for
 them is designed from the PRD rather than confirmed against live data; the rule is written to be
 status-agnostic (anything not `done` and not tier-1/2 held) so an unobserved status cannot fall
@@ -116,11 +118,28 @@ PRD US-2 puts every non-waiting session into one **Active** list. Against real d
 
 **Decision:** three sections.
 
-| Section | Contents | Order |
-|---|---|---|
-| **Needs you** | tier 1 and 2 holds | tier asc, then `updatedAt` asc (oldest wait first) |
-| **Active** | no hold, or a tier-3 hold; status not `done` | `updatedAt` desc |
-| **Done** | status `done` | `updatedAt` desc |
+Rows are classified by a **strict precedence, hold before status**:
+
+1. hold of tier 1 or 2 → **Needs you** — *regardless of status*
+2. hold of tier 3 → **Active** — *regardless of status*
+3. no hold, status `done` → **Done**
+4. otherwise → **Active**
+
+| Section | Order |
+|---|---|
+| **Needs you** | tier asc, then `updatedAt` asc (oldest wait first) |
+| **Active** | `updatedAt` desc |
+| **Done** | `updatedAt` desc |
+
+**Hold-before-status is the single most important rule in this design, and it is not obvious.**
+In the live snapshot, **9 of the 12 waiting sessions have status `done`** — an agent finishing its
+turn and an agent waiting on the operator are not mutually exclusive; `done` means "the agent
+stopped", which is frequently *because* it needs an answer. Classifying by status first would hide
+9 of 12 waiting sessions inside a collapsed section, inverting the extension's entire purpose. A
+test locks this: a `done` session carrying a tier-1 hold must land in Needs you.
+
+Rule 2 exists for the same reason in miniature: `ready-merge` renders as "Ready to merge — waiting
+on you", so a tier-3 hold belongs in Active even when the session reads `done`.
 
 **Done is collapsed by default** with its count in the header. Collapsed, not dropped: a
 just-finished session is often the next thing you want to open.
