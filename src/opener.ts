@@ -22,9 +22,16 @@ import { messageBroker } from 'asyar-sdk/contracts';
 
 export type OpenRoute = 'broker' | 'browser' | 'failed';
 
+/** The SDK's ambient invoke() default (10s, see MessageBroker.js) is tuned for
+ *  IPC that may genuinely take a while. Opening a URL is a local operation, so
+ *  if route A hasn't answered in 3s it isn't "slow" — the host isn't routing
+ *  `opener:open` at all, and we want route B to take over promptly instead of
+ *  the panel looking frozen. */
+const OPEN_INVOKE_TIMEOUT_MS = 3_000;
+
 export async function openExternal(context: ExtensionContext, url: string): Promise<OpenRoute> {
   try {
-    await messageBroker.invoke('opener:open', { url });
+    await messageBroker.invoke('opener:open', { url }, undefined, OPEN_INVOKE_TIMEOUT_MS);
     return 'broker';
   } catch {
     // fall through to route B

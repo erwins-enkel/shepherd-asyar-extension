@@ -149,7 +149,7 @@
         <ul>
           {#each needsYou as row (row.id)}
             <li data-tier={row.tier}>
-              <button class="row" onclick={() => open(row)}>
+              <button type="button" class="row" onclick={() => open(row)}>
                 <span class="desig">{row.desig}</span>
                 <span class="name">{row.name}</span>
                 <span class="repo">{row.repo}</span>
@@ -169,7 +169,7 @@
         <ul>
           {#each active as row (row.id)}
             <li>
-              <button class="row" onclick={() => open(row)}>
+              <button type="button" class="row" onclick={() => open(row)}>
                 <span class="desig">{row.desig}</span>
                 <span class="name">{row.name}</span>
                 <span class="repo">{row.repo}</span>
@@ -184,6 +184,7 @@
     <section>
       <h2>
         <button
+          type="button"
           class="disclosure"
           aria-expanded={doneOpen}
           onclick={() => (doneOpen = !doneOpen)}
@@ -195,7 +196,7 @@
         <ul>
           {#each done as row (row.id)}
             <li>
-              <button class="row" onclick={() => open(row)}>
+              <button type="button" class="row" onclick={() => open(row)}>
                 <span class="desig">{row.desig}</span>
                 <span class="name">{row.name}</span>
                 <span class="repo">{row.repo}</span>
