@@ -148,3 +148,45 @@ describe('buildPanel', () => {
     expect(panel.needsYou[0].reason).toBe('Wartet auf eine Menüauswahl.');
   });
 });
+
+describe('buildPanel — repo icons', () => {
+  const holds: HoldsResponse = {};
+
+  it('carries the repo emoji onto the row', () => {
+    const sessions = [session({ id: 's1', repoPath: '/home/moe/projects/demo' })];
+
+    const panel = buildPanel(sessions, holds, 'en', { '/home/moe/projects/demo': '🚚' });
+
+    expect(panel.active[0].icon).toBe('🚚');
+  });
+
+  it('leaves the icon null for a repo with none configured', () => {
+    const sessions = [session({ id: 's1', repoPath: '/home/moe/projects/demo' })];
+
+    const panel = buildPanel(sessions, holds, 'en', { '/home/moe/projects/other': '🚚' });
+
+    expect(panel.active[0].icon).toBeNull();
+  });
+
+  it('defaults to no icon when the caller passes no map', () => {
+    const panel = buildPanel([session({ id: 's1' })], holds, 'en');
+
+    expect(panel.active[0].icon).toBeNull();
+  });
+
+  it('matches on the full repo path, not the basename', () => {
+    const sessions = [session({ id: 's1', repoPath: '/home/moe/projects/demo' })];
+
+    const panel = buildPanel(sessions, holds, 'en', { demo: '🚚' });
+
+    expect(panel.active[0].icon).toBeNull();
+  });
+
+  it('does not resolve a repo path through Object.prototype', () => {
+    const sessions = [session({ id: 's1', repoPath: 'toString' })];
+
+    const panel = buildPanel(sessions, holds, 'en', {});
+
+    expect(panel.active[0].icon).toBeNull();
+  });
+});

@@ -91,7 +91,7 @@
       outcome = result;
       if (result.kind === 'ok') {
         const lang = resolveLanguage(prefs.language, globalThis.navigator?.language);
-        panel = buildPanel(result.sessions, result.holds, lang);
+        panel = buildPanel(result.sessions, result.holds, lang, result.icons);
       } else {
         panel = { needsYou: [], active: [], done: [], orphanHolds: 0 };
       }
@@ -515,7 +515,11 @@
                 onclick={() => open(row)}
               >
                 <span class="desig">{row.desig}</span>
-                <span class="name">{row.name}</span>
+                <span class="name"
+                  >{#if row.icon}<span class="repo-icon" title={row.repo} aria-hidden="true"
+                      >{row.icon}</span
+                    >{/if}{row.name}</span
+                >
                 <span class="repo">{row.repo}</span>
                 <span class="reason">{row.reason}</span>
               </button>
@@ -542,7 +546,11 @@
                 onclick={() => open(row)}
               >
                 <span class="desig">{row.desig}</span>
-                <span class="name">{row.name}</span>
+                <span class="name"
+                  >{#if row.icon}<span class="repo-icon" title={row.repo} aria-hidden="true"
+                      >{row.icon}</span
+                    >{/if}{row.name}</span
+                >
                 <span class="repo">{row.repo}</span>
                 <span class="reason">{row.reason ?? `${row.status} · ${elapsed(row.updatedAt)}`}</span>
               </button>
@@ -576,7 +584,11 @@
                 onclick={() => open(row)}
               >
                 <span class="desig">{row.desig}</span>
-                <span class="name">{row.name}</span>
+                <span class="name"
+                  >{#if row.icon}<span class="repo-icon" title={row.repo} aria-hidden="true"
+                      >{row.icon}</span
+                    >{/if}{row.name}</span
+                >
                 <span class="repo">{row.repo}</span>
                 <span class="reason">{elapsed(row.updatedAt)}</span>
               </button>
@@ -706,6 +718,13 @@
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     color: var(--text-secondary);
+  }
+
+  /* The repo's emoji, in front of the session name — the same identity glyph
+     the Shepherd HUD puts there. The repo column stays: this panel has the
+     width for both, and the emoji alone doesn't name the repo. */
+  .repo-icon {
+    margin-right: var(--space-1);
   }
 
   .name {

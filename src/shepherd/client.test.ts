@@ -66,16 +66,17 @@ describe('fetchPanelData', () => {
 
     const outcome = await fetchPanelData(net, BASE, 'shp_token');
 
-    expect(outcome).toEqual({ kind: 'ok', sessions: SESSIONS, holds: HOLDS });
+    expect(outcome).toEqual({ kind: 'ok', sessions: SESSIONS, holds: HOLDS, icons: {} });
   });
 
-  it('requests both endpoints with the bearer token and an explicit timeout', async () => {
+  it('requests all three endpoints with the bearer token and an explicit timeout', async () => {
     const net = bothOk();
 
     await fetchPanelData(net, BASE, 'shp_token');
 
     expect(net.calls.map((c) => c.url).sort()).toEqual([
       `${BASE}/api/holds`,
+      `${BASE}/api/project-icons`,
       `${BASE}/api/sessions`,
     ]);
     for (const call of net.calls) {
@@ -219,7 +220,12 @@ describe('fetchPanelData', () => {
   it('treats an empty core as success, not an error', async () => {
     const net = new FakeNet(async (url) => (url.includes('/api/holds') ? ok({}) : ok([])));
 
-    expect(await fetchPanelData(net, BASE, 't')).toEqual({ kind: 'ok', sessions: [], holds: {} });
+    expect(await fetchPanelData(net, BASE, 't')).toEqual({
+      kind: 'ok',
+      sessions: [],
+      holds: {},
+      icons: {},
+    });
   });
 
   // A future Shepherd version could wrap the holds map, e.g.
@@ -260,6 +266,7 @@ describe('fetchPanelData', () => {
       kind: 'ok',
       sessions: SESSIONS,
       holds: {},
+      icons: {},
     });
   });
 
@@ -273,6 +280,92 @@ describe('fetchPanelData', () => {
       kind: 'ok',
       sessions: SESSIONS,
       holds: withParams,
+      icons: {},
     });
+  });
+});
+
+describe('fetchPanelData — project icons', () => {
+  it('carries the repoPath→emoji map from /api/project-icons', async () => {
+    const net = new FakeNet(async (url) => {
+      if (url.includes('/api/holds')) return ok(HOLDS);
+      if (url.includes('/api/project-icons')) return ok({ '/repos/demo': '🚚' });
+      return ok(SESSIONS);
+    });
+
+    const result = await fetchPanelData(net, BASE, undefined);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.icons).toEqual({ '/repos/demo': '🚚' });
+  });
+
+  it('still renders the panel when the core has no project-icons endpoint', async () => {
+    const net = new FakeNet(async (url) => {
+      if (url.includes('/api/holds')) return ok(HOLDS);
+      if (url.includes('/api/project-icons')) return status(404);
+      return ok(SESSIONS);
+    });
+
+    const result = await fetchPanelData(net, BASE, undefined);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.icons).toEqual({});
+  });
+
+  it('survives a project-icons request that rejects outright', async () => {
+    const net = new FakeNet(async (url) => {
+      if (url.includes('/api/project-icons')) throw new Error('fetch_url failed');
+      if (url.includes('/api/holds')) return ok(HOLDS);
+      return ok(SESSIONS);
+    });
+
+    const result = await fetchPanelData(net, BASE, undefined);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.icons).toEqual({});
+  });
+
+  it('ignores a malformed project-icons payload instead of failing the panel', async () => {
+    const net = new FakeNet(async (url) => {
+      if (url.includes('/api/holds')) return ok(HOLDS);
+      if (url.includes('/api/project-icons')) return ok(['not', 'a', 'map']);
+      return ok(SESSIONS);
+    });
+
+    const result = await fetchPanelData(net, BASE, undefined);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.icons).toEqual({});
+  });
+
+  it('drops non-string entries, mirroring Shepherd’s own loadIcons', async () => {
+    const net = new FakeNet(async (url) => {
+      if (url.includes('/api/holds')) return ok(HOLDS);
+      if (url.includes('/api/project-icons')) return ok({ '/repos/demo': '🚚', '/repos/x': 7 });
+      return ok(SESSIONS);
+    });
+
+    const result = await fetchPanelData(net, BASE, undefined);
+
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.icons).toEqual({ '/repos/demo': '🚚' });
+  });
+
+  it('sends the same auth header to the icons endpoint', async () => {
+    const net = new FakeNet(async (url) => {
+      if (url.includes('/api/holds')) return ok(HOLDS);
+      if (url.includes('/api/project-icons')) return ok({});
+      return ok(SESSIONS);
+    });
+
+    await fetchPanelData(net, BASE, 'sekrit');
+
+    const call = net.calls.find((c) => c.url.includes('/api/project-icons'));
+    expect(call?.options?.headers?.Authorization).toBe('Bearer sekrit');
   });
 });

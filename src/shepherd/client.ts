@@ -13,14 +13,14 @@
 //      so it cannot be used as a diagnosis — hence naming the URL instead.
 // ─────────────────────────────────────────────────────────────────────────
 import type { INetworkService, NetworkResponse } from 'asyar-sdk/contracts';
-import type { HoldsResponse, Session } from './types';
+import type { HoldsResponse, ProjectIcons, Session } from './types';
 
 /** Every layer disagrees about the default (30000 / 25000+15000 / 20000), so
  *  we pass our own. A panel that has not answered in 10s has failed. */
 const TIMEOUT_MS = 10_000;
 
 export type FetchOutcome =
-  | { kind: 'ok'; sessions: Session[]; holds: HoldsResponse }
+  | { kind: 'ok'; sessions: Session[]; holds: HoldsResponse; icons: ProjectIcons }
   | { kind: 'unconfigured' }
   | { kind: 'unreachable'; baseUrl: string }
   | { kind: 'unauthorized'; baseUrl: string }
@@ -48,12 +48,21 @@ export async function fetchPanelData(
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (token && token.trim().length > 0) headers.Authorization = `Bearer ${token.trim()}`;
 
+  // The icons request rides along with the two that matter but is deliberately
+  // held to a lower standard: it is fetched through `settle`, so a rejection
+  // never reaches the `catch` below and never turns the panel `unreachable`.
+  // Icons are decoration — a core too old to serve `/api/project-icons` 404s
+  // here, and that must not cost the operator the list of blocked sessions.
   let responses: [NetworkResponse, NetworkResponse];
+  let iconsResponse: NetworkResponse | null;
   try {
-    responses = await Promise.all([
+    const [sessionsRes, holdsRes, iconsRes] = await Promise.all([
       net.fetch(`${base}/api/sessions`, { method: 'GET', headers, timeout: TIMEOUT_MS }),
       net.fetch(`${base}/api/holds`, { method: 'GET', headers, timeout: TIMEOUT_MS }),
+      settle(net.fetch(`${base}/api/project-icons`, { method: 'GET', headers, timeout: TIMEOUT_MS })),
     ]);
+    responses = [sessionsRes, holdsRes];
+    iconsResponse = iconsRes;
   } catch {
     return { kind: 'unreachable', baseUrl: base };
   }
@@ -125,5 +134,42 @@ export async function fetchPanelData(
     kind: 'ok',
     sessions: sessions as Session[],
     holds: holds as HoldsResponse,
+    icons: parseIcons(iconsResponse),
   };
+}
+
+/** Turns a rejection into `null` so one optional request cannot fail the
+ *  `Promise.all` that its two required siblings ride in. */
+async function settle(promise: Promise<NetworkResponse>): Promise<NetworkResponse | null> {
+  try {
+    return await promise;
+  } catch {
+    return null;
+  }
+}
+
+/** Best-effort read of `/api/project-icons`. Every failure mode — no response,
+ *  non-2xx, unparseable body, an array or scalar where a map belongs — yields
+ *  an empty map, because a missing emoji is not worth an error state. Non-string
+ *  values are dropped entry by entry, mirroring Shepherd's own `loadIcons`
+ *  (`src/project-icons.ts`), which is tolerant of exactly the same corruption. */
+function parseIcons(response: NetworkResponse | null): ProjectIcons {
+  if (!response?.ok) return {};
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(response.body);
+  } catch {
+    return {};
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+
+  const icons: ProjectIcons = {};
+  // Object.entries, not bracket access, so a repo path spelled like an
+  // Object.prototype member can't pull an inherited value into the map.
+  for (const [path, emoji] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof emoji === 'string' && emoji.length > 0) icons[path] = emoji;
+  }
+  return icons;
 }

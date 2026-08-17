@@ -7,7 +7,7 @@
 // agent that needs an answer are the same thing more often than not. Reading
 // status first would file those 9 under "Done" and hide them.
 // ─────────────────────────────────────────────────────────────────────────
-import type { HoldsResponse, Session, SessionStatus } from './types';
+import type { HoldsResponse, ProjectIcons, Session, SessionStatus } from './types';
 import { tierOf, type Tier } from './tiers';
 import { renderHold, type HoldLanguage } from './copy';
 
@@ -17,6 +17,9 @@ export interface PanelRow {
   name: string;
   /** Repo directory name — the full path is noise in a list. */
   repo: string;
+  /** The repo's configured emoji, or null when it has none. Looked up by the
+   *  session's full `repoPath`, which is what Shepherd keys the map by. */
+  icon: string | null;
   status: SessionStatus;
   updatedAt: number;
   /** Null when the session carries no hold. */
@@ -59,6 +62,7 @@ export function buildPanel(
   sessions: Session[],
   holds: HoldsResponse,
   lang: HoldLanguage,
+  icons: ProjectIcons = {},
 ): PanelModel {
   const needsYou: PanelRow[] = [];
   const active: PanelRow[] = [];
@@ -69,6 +73,7 @@ export function buildPanel(
   // `constructor`) still misses cleanly instead of resolving to an inherited
   // value — mirrors the lookup pattern in tiers.ts and copy.ts.
   const holdById = new Map(Object.entries(holds));
+  const iconByRepoPath = new Map(Object.entries(icons));
   const matchedHoldIds = new Set<string>();
 
   for (const s of sessions) {
@@ -80,6 +85,7 @@ export function buildPanel(
       desig: s.desig,
       name: s.name,
       repo: repoBasename(s.repoPath),
+      icon: iconByRepoPath.get(s.repoPath) ?? null,
       status: s.status,
       updatedAt: s.updatedAt,
       tier,

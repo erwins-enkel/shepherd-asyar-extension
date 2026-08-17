@@ -74,3 +74,9 @@ export interface Session {
 /** `GET /api/holds` — an object keyed by session id. A session absent from it
  *  is simply un-held. */
 export type HoldsResponse = Record<string, RawHold>;
+
+/** `GET /api/project-icons` — repo path to emoji, the same map the HUD renders
+ *  before a session name (`ui/src/lib/projectIcons.svelte.ts`). Keyed by the
+ *  full `repoPath`, not its basename. A repo absent from it has no icon; the
+ *  HUD falls back to `▣`. */
+export type ProjectIcons = Record<string, string>;
