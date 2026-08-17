@@ -10,9 +10,11 @@
     IClipboardHistoryService,
     INetworkService,
   } from 'asyar-sdk/contracts';
+  import { untrack } from 'svelte';
   import { ActionContext, ClipboardItemType } from 'asyar-sdk/contracts';
   import { fetchPanelData, normalizeBaseUrl, sessionUrl, type FetchOutcome } from './shepherd/client';
   import { buildPanel, type PanelModel, type PanelRow } from './shepherd/view-model';
+  import { keepSelection, moveSelection } from './shepherd/selection';
   import { resolveLanguage } from './shepherd/copy';
   import { openExternal } from './opener';
 
@@ -32,6 +34,13 @@
    *  `<main>` is not an interactive element, so it must not own key
    *  handling directly. */
   let containerEl = $state<HTMLElement | null>(null);
+  /** The highlighted row, as a session id rather than DOM focus. While the
+   *  launcher's search bar owns focus — the normal case, since that bar is
+   *  what filters this list — no keystroke reaches this iframe's DOM at all
+   *  (see `selection.ts` for the launcher code that intercepts them), and
+   *  focusing a row here would take focus off the search bar and stop the
+   *  typing that drives the filter. */
+  let selectedId = $state<string | null>(null);
   /** Set when `load()` itself throws or rejects before an `outcome` can be
    *  produced — e.g. `preferences.refresh()` IPC failure or a synchronous
    *  throw from `getService()`. This is not a client-layer failure (see
@@ -163,7 +172,7 @@
   async function copyFocusedSessionLink(): Promise<void> {
     const activeEl = document.activeElement;
     const focusedId = activeEl instanceof HTMLElement ? activeEl.dataset.sessionId : undefined;
-    const targetId = focusedId ?? firstVisibleRow()?.id;
+    const targetId = focusedId ?? selectedId ?? firstVisibleRow()?.id;
     if (!targetId) {
       showCopyMessage('No session to copy — the list is empty.');
       return;
@@ -215,6 +224,36 @@
   let done = $derived(panel.done.filter((r) => matches(r, filter)));
   let isFiltering = $derived(filter.trim() !== '');
 
+  /** Every visible row id in render order — the order ArrowDown/ArrowUp walk,
+   *  and the same order `firstVisibleRow()` picks its head from. Done rows
+   *  count only while the section is expanded, because that's when they are
+   *  on screen. */
+  let visibleIds = $derived([...needsYou, ...active, ...(doneOpen ? done : [])].map((r) => r.id));
+
+  /** Filtering (or a refresh) can hide the highlighted row out from under the
+   *  selection; drop it rather than leave a highlight pointing at a row that
+   *  is no longer rendered. */
+  $effect(() => {
+    // `selectedId` is read through `untrack` deliberately: this effect writes
+    // it, and tracking its own write would make the effect depend on itself.
+    // The visible set changing is the only thing that should re-clamp.
+    const kept = keepSelection(visibleIds, untrack(() => selectedId));
+    if (kept !== untrack(() => selectedId)) selectedId = kept;
+  });
+
+  function rowById(id: string): PanelRow | undefined {
+    return needsYou.find((r) => r.id === id) ?? active.find((r) => r.id === id) ?? done.find((r) => r.id === id);
+  }
+
+  /** Keeps the highlighted row on screen as the selection walks past the
+   *  bottom (or top) of the scroll area. `block: 'nearest'` so a row that is
+   *  already visible doesn't jump. */
+  function scrollSelectionIntoView(): void {
+    if (!containerEl || selectedId === null) return;
+    const rows = Array.from(containerEl.querySelectorAll<HTMLButtonElement>('button.row'));
+    rows.find((el) => el.dataset.sessionId === selectedId)?.scrollIntoView({ block: 'nearest' });
+  }
+
   /** The launcher's own search bar (in the PARENT window) now drives
    *  filtering instead of an input in this iframe — see the (now-removed)
    *  `Filter…` input this replaces. `asyar-sdk`'s shipped `dist/` never
@@ -233,6 +272,27 @@
     // messages this SDK sends for unrelated purposes, is ignored outright.
     if (event.source !== window.parent) return;
     const type = (event.data as { type?: unknown } | null)?.type;
+
+    // The launcher owns the arrow keys while its search bar has focus: it
+    // preventDefault()s them and re-delivers them here as a message, so this
+    // is the only path by which they can reach the panel at all. See the
+    // header comment in selection.ts for the launcher code that does it.
+    if (type === 'asyar:view:keydown') {
+      const key = (event.data as { payload?: { key?: unknown } }).payload?.key;
+      if (key === 'ArrowDown' || key === 'ArrowUp') {
+        selectedId = moveSelection(visibleIds, selectedId, key);
+        scrollSelectionIntoView();
+        return;
+      }
+      // Enter arrives the same way, so a <button>'s native activation never
+      // fires — open the highlighted row explicitly instead.
+      if (key === 'Enter' && selectedId !== null) {
+        const row = rowById(selectedId);
+        if (row) void open(row);
+      }
+      return;
+    }
+
     if (type !== 'asyar:view:search' && type !== 'asyar:view:submit') return;
     const query = (event.data as { payload?: { query?: unknown } }).payload?.query;
     if (typeof query !== 'string') return;
@@ -308,11 +368,13 @@
   /** ArrowDown/ArrowUp move focus across the visible row buttons in render
    *  order (Needs you, then Active, then Done if expanded), which is also
    *  their DOM order since the Done rows only exist when doneOpen is true.
-   *  There is no filter input to seed focus from any more (see
-   *  `handleParentMessage` above) — the launcher's own search bar owns
-   *  typing now, and this iframe deliberately never autofocuses anything on
-   *  mount, so this handler only engages once focus has already entered
-   *  this iframe by some other means (Tab, or a mouse click on a row).
+   *
+   *  This is the DOM path, and it only runs when focus is already inside
+   *  this iframe — which now happens only after a mouse click on a row.
+   *  Keyboard use from the launcher's search bar goes through
+   *  `handleParentMessage` instead (the launcher intercepts those keys
+   *  before they can become DOM events here; see selection.ts). Both paths
+   *  write `selectedId`, so there is one highlighted row either way.
    *  Enter is not reimplemented here — it already activates a focused row
    *  natively via <button>. Escape and other keys are left untouched: the
    *  launcher owns dismissal, not this panel. */
@@ -347,7 +409,7 @@
 
     if (event.key === 'ArrowDown') {
       event.preventDefault();
-      rows[index === -1 ? 0 : Math.min(index + 1, rows.length - 1)].focus();
+      focusRow(rows[index === -1 ? 0 : Math.min(index + 1, rows.length - 1)]);
       return;
     }
 
@@ -355,7 +417,15 @@
     // focus is outside this iframe entirely) leave default behaviour alone.
     if (index === -1) return;
     event.preventDefault();
-    rows[Math.max(index - 1, 0)].focus();
+    focusRow(rows[Math.max(index - 1, 0)]);
+  }
+
+  /** Keeps the DOM-focus path and the virtual selection pointing at the same
+   *  row, so a click-then-arrow session doesn't render two different
+   *  "current" rows (a focus ring on one, the highlight on another). */
+  function focusRow(el: HTMLButtonElement): void {
+    el.focus();
+    selectedId = el.dataset.sessionId ?? null;
   }
 
   /** Coarse elapsed label. Deliberately not a live ticker — the panel is open
@@ -437,6 +507,8 @@
               <button
                 type="button"
                 class="row"
+                class:selected={selectedId === row.id}
+                aria-current={selectedId === row.id ? 'true' : undefined}
                 data-session-id={row.id}
                 onclick={() => open(row)}
               >
@@ -462,6 +534,8 @@
               <button
                 type="button"
                 class="row"
+                class:selected={selectedId === row.id}
+                aria-current={selectedId === row.id ? 'true' : undefined}
                 data-session-id={row.id}
                 onclick={() => open(row)}
               >
@@ -494,6 +568,8 @@
               <button
                 type="button"
                 class="row"
+                class:selected={selectedId === row.id}
+                aria-current={selectedId === row.id ? 'true' : undefined}
                 data-session-id={row.id}
                 onclick={() => open(row)}
               >
@@ -610,6 +686,17 @@
   button.row:hover,
   button.row:focus-visible {
     background: var(--bg-secondary);
+  }
+
+  /* The arrow-key highlight. It cannot be `:focus-visible`: the launcher's
+     search bar keeps DOM focus while the arrows are being pressed (see
+     selection.ts), so this row is never the focused element. An outline on
+     top of the background carries the "this is the one Enter opens" cue that
+     a focus ring would otherwise carry. */
+  button.row.selected {
+    background: var(--bg-secondary);
+    outline: 1px solid var(--accent-primary);
+    outline-offset: -1px;
   }
 
   .desig {

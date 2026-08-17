@@ -193,6 +193,22 @@ been observed running.
   with no `browser:*` call following. The `getService<IBrowserService>('browser').openUrl(url)`
   fallback under `browser:tabs.write` that `src/opener.ts` used to try has been removed, along with
   the permission.
+- **An open view never receives arrow keys, Enter or Tab as DOM events.** **SOURCE-READ**,
+  `asyar-launcher/src/lib/keyboard/launcherKeyboard.ts` → `tryRouteToActiveView`: while
+  `viewManager.activeView` is set and the extension is not a built-in, the launcher's
+  window-**capture** handler forwards `ArrowUp` / `ArrowDown` / `ArrowLeft` / `ArrowRight` /
+  `Enter` / `Tab` to the view iframe as a `postMessage` and then calls `preventDefault()` +
+  `stopPropagation()`. `ExtensionIframeManager.forwardKeyToActiveView` posts them as
+  `{ type: 'asyar:view:keydown', payload: { key, shiftKey, ctrlKey, metaKey, altKey } }`. A
+  `window` keydown listener inside the iframe therefore only ever sees these keys when focus is
+  already *inside* the iframe — which, with the filter input gone, happens only after a mouse
+  click on a row. **CONFIRMED** by the symptom: with the launcher's search bar focused, ArrowDown
+  did nothing at all until `SessionsView` started handling the message.
+  Two consequences: `Tab` cannot be used to move focus into the panel (it is swallowed the same
+  way), and a focused `<button>` never activates natively on Enter, so a view that wants Enter
+  must handle the message itself. Selection therefore has to be *virtual* state — calling
+  `.focus()` on a row would take focus off the launcher's search bar and stop the typing that
+  feeds `asyar:view:search`.
 - **Root search is capped at 200 ms** for the whole extension-search round, even though the
   per-iframe request timeout is 5000 ms. `search()` must answer from cache; a live HTTP GET inside
   it will never appear. This is why #6 (poll + cache) blocks #7.
