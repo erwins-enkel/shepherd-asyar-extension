@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { keepSelection, moveSelection } from './selection';
+import { moveSelection, settleSelection } from './selection';
 
 describe('moveSelection', () => {
   it('returns null for an empty list', () => {
@@ -37,16 +37,21 @@ describe('moveSelection', () => {
   });
 });
 
-describe('keepSelection', () => {
+describe('settleSelection', () => {
   it('keeps a selection that is still visible', () => {
-    expect(keepSelection(['a', 'b'], 'b')).toBe('b');
+    expect(settleSelection(['a', 'b'], 'b')).toBe('b');
   });
 
-  it('drops a selection the filter has hidden', () => {
-    expect(keepSelection(['a', 'b'], 'c')).toBeNull();
+  it('selects the top row when the list first arrives', () => {
+    expect(settleSelection(['a', 'b'], null)).toBe('a');
   });
 
-  it('passes an absent selection through', () => {
-    expect(keepSelection(['a'], null)).toBeNull();
+  it('falls back to the top row when the filter hides the selected one', () => {
+    expect(settleSelection(['a', 'b'], 'c')).toBe('a');
+  });
+
+  it('has nothing to select in an empty list', () => {
+    expect(settleSelection([], 'a')).toBeNull();
+    expect(settleSelection([], null)).toBeNull();
   });
 });

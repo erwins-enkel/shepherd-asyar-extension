@@ -14,7 +14,7 @@
   import { ActionContext, ClipboardItemType } from 'asyar-sdk/contracts';
   import { fetchPanelData, normalizeBaseUrl, sessionUrl, type FetchOutcome } from './shepherd/client';
   import { buildPanel, type PanelModel, type PanelRow } from './shepherd/view-model';
-  import { keepSelection, moveSelection } from './shepherd/selection';
+  import { moveSelection, settleSelection } from './shepherd/selection';
   import { resolveLanguage } from './shepherd/copy';
   import { openExternal } from './opener';
 
@@ -230,15 +230,17 @@
    *  on screen. */
   let visibleIds = $derived([...needsYou, ...active, ...(doneOpen ? done : [])].map((r) => r.id));
 
-  /** Filtering (or a refresh) can hide the highlighted row out from under the
-   *  selection; drop it rather than leave a highlight pointing at a row that
-   *  is no longer rendered. */
+  /** Holds the highlight on a row that is actually on screen: the top one
+   *  when the list first loads or when filtering hides the previous pick. The
+   *  panel is therefore a one-keystroke jump — open it, press Enter, land on
+   *  the most urgent session — and typing a filter re-aims that Enter at the
+   *  top match without touching the arrow keys. */
   $effect(() => {
     // `selectedId` is read through `untrack` deliberately: this effect writes
     // it, and tracking its own write would make the effect depend on itself.
-    // The visible set changing is the only thing that should re-clamp.
-    const kept = keepSelection(visibleIds, untrack(() => selectedId));
-    if (kept !== untrack(() => selectedId)) selectedId = kept;
+    // The visible set changing is the only thing that should re-settle it.
+    const settled = settleSelection(visibleIds, untrack(() => selectedId));
+    if (settled !== untrack(() => selectedId)) selectedId = settled;
   });
 
   function rowById(id: string): PanelRow | undefined {

@@ -36,10 +36,17 @@ export function moveSelection(
   return ids[next % ids.length];
 }
 
-/** Drops a selection the currently visible rows no longer contain, so a
- *  filter keystroke that hides the selected row clears the highlight instead
- *  of leaving `aria-activedescendant` pointing at an id that isn't rendered. */
-export function keepSelection(ids: readonly string[], selected: string | null): string | null {
-  if (selected === null) return null;
-  return ids.includes(selected) ? selected : null;
+/** The selection to hold after the visible set changes: keep the current one
+ *  while it is still on screen, otherwise fall back to the top row.
+ *
+ *  That fallback is what makes the panel a one-keystroke jump. The rows
+ *  arrive after the panel opens, so the first call comes with no selection at
+ *  all and settles on the most urgent session (Needs you is rendered first);
+ *  Enter then opens it without an arrow key in between. Typing in the
+ *  launcher's search bar re-runs this with the filtered ids, so the top match
+ *  is selected as the operator types and Enter jumps straight to it. */
+export function settleSelection(ids: readonly string[], selected: string | null): string | null {
+  if (ids.length === 0) return null;
+  if (selected !== null && ids.includes(selected)) return selected;
+  return ids[0];
 }
