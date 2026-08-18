@@ -8,6 +8,17 @@ Read-only. It observes Shepherd and navigates to it; it never steers an agent. T
 structural, not just a matter of discipline: `src/shepherd/client.ts` only ever issues `GET` to
 `/api/sessions` and `/api/holds`, and `notifications:send` is never requested.
 
+![The Needs you section: sessions whose hold is blocking, most urgent first](docs/screenshots/needs-you.png)
+
+Every row carries the reason it is waiting, in your language — *"Autopilot paused for your input."*,
+*"Wartet auf eine Menüauswahl."* — so the list answers *why* before you open anything. The project
+each session belongs to sits on the right, with its configured emoji.
+
+![The Active section: sessions in flight, below the blocking ones](docs/screenshots/active.png)
+
+Scrolling past **Needs you** reaches **Active** — sessions still in flight, with how long they have
+been idle. `⌘K` opens the action drawer for the selected row.
+
 ## What it shows
 
 | Section | Contents |
