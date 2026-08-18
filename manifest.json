@@ -1,10 +1,10 @@
 {
   "id": "dev.erwins-enkel.shepherd",
   "name": "Shepherd Sessions",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "extension",
   "description": "See which of your Shepherd coding-agent sessions are waiting on you and open one in a keystroke. Requires a self-hosted Shepherd core; read-only.",
-  "author": "Kai Osthoff",
+  "author": "Erwins Enkel GmbH",
   "icon": "🐑",
   "searchable": true,
   "asyarSdk": "^4.6.0",

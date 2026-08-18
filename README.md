@@ -133,4 +133,4 @@ which ships off by default.
 
 ## License
 
-[MIT](LICENSE) © Kai Osthoff
+[MIT](LICENSE) © Erwins Enkel GmbH

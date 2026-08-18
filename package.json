@@ -1,6 +1,6 @@
 {
   "name": "dev.erwins-enkel.shepherd",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "See which of your Shepherd coding-agent sessions are waiting on you and open one in a keystroke. Requires a self-hosted Shepherd core; read-only.",
   "type": "module",
   "private": true,
