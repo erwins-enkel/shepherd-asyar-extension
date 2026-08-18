@@ -1,9 +1,10 @@
 {
   "name": "dev.erwins-enkel.shepherd",
   "version": "0.1.0",
-  "description": "Open Shepherd sessions and see which ones are waiting on you.",
+  "description": "See which of your Shepherd coding-agent sessions are waiting on you and open one in a keystroke. Requires a self-hosted Shepherd core; read-only.",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "build": "vite build",
     "check": "tsc --noEmit",

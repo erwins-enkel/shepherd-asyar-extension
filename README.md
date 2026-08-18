@@ -130,3 +130,7 @@ which ships off by default.
 - `docs/PRD.md` — the product requirements
 - `docs/superpowers/specs/2026-08-16-sessions-panel-design.md` — this slice's design
 - `docs/asyar-sdk-notes.md` — verified facts about the Asyar SDK, with evidence
+
+## License
+
+[MIT](LICENSE) © Kai Osthoff
